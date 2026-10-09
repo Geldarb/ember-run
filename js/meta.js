@@ -37,7 +37,7 @@ export function defaultMeta() {
     unlocked: {}, // weapon type -> true (for LOCKED_GUNS)
     codex: {}, // weapon type -> { n: times picked up, best: best rarity }
     affSeen: {}, // affix id -> true
-    stats: { runs: 0, wins: 0, kills: 0, bestFloor: 0, embersEarned: 0, bestTime: 0, bosses: 0, rooms: 0 },
+    stats: { runs: 0, wins: 0, kills: 0, bestFloor: 0, embersEarned: 0, bestTime: 0, bosses: 0, rooms: 0, smithEmbers: 0 },
     last: null, // last run summary
   };
 }
@@ -135,4 +135,13 @@ export function discover(m, g) {
   c.n++; c.best = Math.max(c.best, g.rarity | 0);
   for (const a of g.affixes || []) if (AFFIX[a]) m.affSeen[a] = true;
   return isNew;
+}
+
+// Spend Embers outside the Forge (the weapon smith). Mutates m only on success. Returns {ok, msg}.
+export function spendEmbers(m, cost) {
+  cost = Math.floor(cost);
+  if (!(cost > 0)) return { ok: false, msg: 'Nothing to buy' };
+  if (m.embers < cost) return { ok: false, msg: `Need ${cost - m.embers} more Embers` };
+  m.embers -= cost; m.stats.smithEmbers = (m.stats.smithEmbers || 0) + cost;
+  return { ok: true, cost };
 }

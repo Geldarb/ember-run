@@ -1,7 +1,9 @@
 // Ember Run - client: rendering, input, local player, UI, networking glue.
 import * as THREE from 'three';
 import { PERKS, ENEMIES, ENEMY_TYPES, RARITIES, ELEMENTS, PLAYER_COLORS, PLAYER_COLOR_CSS, FLOORS, CHARACTERS, CHAR_IDS, charOf, GUN_TYPES, GUN_IDS, LOCKED_GUNS, AFFIX, AFFIXES, makeGun, gunSpec, gunFromSpec, cleanSpec, rollGun, rollAffixes, gunStatRows, gunTraits, SKILL_UPS, SKILL_UP, clamp, rand } from './data.js';
-import { loadMeta, saveMeta, resetMeta, metaBonuses, weaponPool, computeEarnings, recordRun, discover, buy, priceOf, lvl as metaLvl, clvl, isUnlocked, UPGRADES, CHAR_UPGRADES } from './meta.js';
+import { loadMeta, saveMeta, resetMeta, metaBonuses, weaponPool, computeEarnings, recordRun, discover, buy, priceOf, lvl as metaLvl, clvl, isUnlocked, UPGRADES, CHAR_UPGRADES, spendEmbers, META_KEY } from './meta.js';
+import { rerollCost, rerollBlock, rerollAffixes, rarityUpCost, upgradeRarity, RARITY_UP_EMBERS } from './weapons.js';
+import { CARD_RANGE, CARD_LOOK_YAW, CARD_LOOK_PITCH, chestGold, clearGold, consumablePrice, CONSUMABLES, stockRerollCost, stockSeed, genStock, shopSpots, NPC_RANGE } from './shop.js';
 import { genLevel, buildLevelMesh, collide, rayBoxes, roomAt, setDoors, pointInSolid } from './level.js';
 import { HostSim } from './host.js';
 import { Net, SERVER_OVERRIDE } from './net.js';
@@ -123,13 +125,14 @@ window.__dbg = {
   // weapons: give a gun directly, or (host) spawn a pickup in front of you
   giveGun: (spec) => takeGun(cleanSpec(spec), true), spawnGun: (spec, d = 2) => G.host && G.host.addPickup({ kind: 'gun', x: me.x - Math.sin(me.yaw) * d, z: me.z - Math.cos(me.yaw) * d, gun: cleanSpec(spec) }),
   makeGun, rollGun, get meta() { return META; }, setMeta: (m) => { META = m; saveMeta(localStorage, META); renderForge(); updateMenuEmbers(); }, reloadMeta: () => { META = loadMeta(localStorage); updateMenuEmbers(); return META; },
-  openForge: () => openForge(), chooseSkillUp: (i) => chooseSkillUp(i), get skillChoices() { return skillChoices; }, inspect: (on) => setInspect(on), rerollPerks: () => rerollPerks(),
+  openMerchant: (k) => openMerchant(k), closeMerchant: () => closeMerchant(), get shopState() { return M; }, addGold: (n) => addGold(n), get npcs() { return G.npcs; }, openForge: () => openForge(), chooseSkillUp: (i) => chooseSkillUp(i), get skillChoices() { return skillChoices; }, inspect: (on) => setInspect(on), rerollPerks: () => rerollPerks(),
 };
 function perkN(id) { return me.perks[id] || 0; }
 function SU(id) { return (me.skillUps && me.skillUps[id]) || 0; } // end-of-floor skill upgrade stacks
 // ---- meta-progression (the Forge), saved per browser
 let META = loadMeta(localStorage);
 function MB() { return metaBonuses(META, CHAR); }
+window.addEventListener('storage', (e) => { if (e.key === META_KEY) { META = loadMeta(localStorage); updateMenuEmbers(); if (G.merchantOpen) renderMerchant(); } }); // another tab spent / earned Embers
 function persistMeta() { if (!saveMeta(localStorage, META)) toast('Could not save progress (storage blocked?)', 2); }
 
 let NAME = localStorage.getItem('ember_name') || ('Ember' + Math.floor(Math.random() * 900 + 100));
@@ -145,6 +148,7 @@ addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   keys[e.code] = true;
   if (!G.playing) return;
+  if (G.merchantOpen) { if (['Escape', 'KeyE', 'KeyF'].includes(e.code)) { e.preventDefault(); closeMerchant(); } else if (M && M.kind === 'shop' && M.swap == null && /^Digit[1-4]$/.test(e.code)) shopBuy(+e.code.slice(5) - 1); return; }
   if (G.perkOpen && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) { if (G.pickMode === 'skill') chooseSkillUp(+e.code.slice(5) - 1); else choosePerk(+e.code.slice(5) - 1); return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); setInspect(true); }
   if (e.code === 'Space') input.jump = true;
@@ -173,7 +177,7 @@ addEventListener('mousemove', (e) => { if (pointerLocked) { input.lookX += e.mov
 function lockPointer() { if (isTouch) return; try { const p = canvas.requestPointerLock && canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch {} }
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
-  if (!pointerLocked) { input.fire = false; input.aim = false; if (G.playing && !G.over && !G.perkOpen) showPause(true); }
+  if (!pointerLocked) { input.fire = false; input.aim = false; if (G.playing && !G.over && !G.perkOpen && !G.merchantOpen) showPause(true); }
   else showPause(false);
 });
 
@@ -243,7 +247,7 @@ function screenOnly(id) { for (const s of ['menu', 'lobby', 'perks', 'end', 'pau
 let toastT = 0;
 function toast(msg, dur = 2) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); toastT = dur; }
 function showPause(on) {
-  if (on && (!G.playing || G.over || G.perkOpen)) return;
+  if (on && (!G.playing || G.over || G.perkOpen || G.merchantOpen)) return;
   show('pause', on);
   G.paused = on && G.mode === 'solo';
   $('pauseTitle').textContent = G.mode === 'solo' ? 'Paused' : 'Menu (game keeps running)';
@@ -357,7 +361,7 @@ function makePlayerMesh(slot, name, char) {
   // team-colour belt + legs
   fig.add(part(BOX, team, 0, 0.55, 0, char === 'anvil' ? 1.0 : 0.72, 0.1, char === 'anvil' ? 0.7 : 0.72));
   fig.add(part(BOX, dark, -0.15, 0.25, 0, 0.18, 0.5, 0.2)); fig.add(part(BOX, dark, 0.15, 0.25, 0, 0.18, 0.5, 0.2));
-  const gun = part(BOX, dark, 0.3, gunY, -0.4, 0.12, 0.14, 0.7); fig.add(gun);
+  const gunMat = lambert(0x2a2a3a); const gun = part(BOX, gunMat, 0.3, gunY, -0.4, 0.12, 0.14, 0.7); fig.add(gun);
   // name tag: player name (team colour) + character (character colour)
   const c = document.createElement('canvas'); c.width = 256; c.height = 96;
   const x = c.getContext('2d'); x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.8)';
@@ -367,7 +371,7 @@ function makePlayerMesh(slot, name, char) {
   tag.scale.set(1.8, 0.675, 1); tag.position.y = tagY; tag.renderOrder = 10; g.add(tag);
   const ring = new THREE.Mesh(AV.ring, basic(0x40ff80, { transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.visible = false; g.add(ring);
-  g.userData = { fig, ring, gun, char };
+  g.userData = { fig, ring, gun, gunMat, char, gr: -1 };
   return g;
 }
 // low-poly gun models (view model + floor pickups). Shared geometries keep this cheap.
@@ -454,6 +458,74 @@ function makePickupMesh(pk) {
   g.position.set(pk.x, 0, pk.z);
   return g;
 }
+
+
+// ---------------------------------------------------------------- merchants (low-poly dwarves in the shop room)
+function nameTag(lines, w = 300, h = 110, scale = 2.4) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'); x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.85)';
+  lines.forEach(([txt, col, px, y]) => { x.font = `bold ${px}px system-ui, sans-serif`; x.strokeText(txt, w / 2, y); x.fillStyle = col; x.fillText(txt, w / 2, y); });
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  tag.scale.set(scale, scale * h / w, 1); tag.renderOrder = 10; return tag;
+}
+function makeDwarf(robeCol, beardCol, hoodCol, accent) {
+  const g = new THREE.Group();
+  const robe = lambert(robeCol), skin = lambert(0xf2b88e), beard = lambert(beardCol), hood = lambert(hoodCol), dark = lambert(0x2a2a3a), acc = lambert(accent, new THREE.Color(accent).multiplyScalar(0.2));
+  g.add(part(AV.robe, robe, 0, 0.62, 0, 1.25, 0.95, 1.25));                       // robe
+  g.add(part(BOX, acc, 0, 0.62, 0, 0.62, 0.1, 0.62));                              // belt
+  g.add(part(AV.head, skin, 0, 1.3, 0.02, 1.15, 1.05, 1.1));                       // head
+  g.add(part(new THREE.ConeGeometry(0.24, 0.62, 5).rotateX(Math.PI), beard, 0, 1.0, 0.2)); // big beard
+  g.add(part(new THREE.IcosahedronGeometry(0.2, 0), beard, 0, 1.17, 0.26, 1.2, 0.7, 0.7));
+  g.add(part(AV.hood, hood, 0, 1.55, -0.03, 1.25, 1.0, 1.25));                    // hood
+  g.add(part(BOX, basic(0x1a1a22), -0.09, 1.34, 0.28, 0.07, 0.07, 0.04)); g.add(part(BOX, basic(0x1a1a22), 0.09, 1.34, 0.28, 0.07, 0.07, 0.04)); // eyes
+  const armL = part(BOX, robe, -0.42, 0.85, 0.12, 0.16, 0.5, 0.18), armR = part(BOX, robe, 0.42, 0.85, 0.12, 0.16, 0.5, 0.18); g.add(armL, armR);
+  g.add(part(BOX, dark, -0.14, 0.12, 0, 0.18, 0.25, 0.22)); g.add(part(BOX, dark, 0.14, 0.12, 0, 0.18, 0.25, 0.22));
+  g.userData = { armL, armR };
+  return g;
+}
+function makeMerchantNpc(kind) {
+  const root = new THREE.Group(), u = { kind, flames: [] };
+  const wood = lambert(0x7a4a22), woodD = lambert(0x4e2f14), metal = lambert(0x8d93a0), iron = lambert(0x3a3d46);
+  if (kind === 'shop') { // Brokk the Peddler: hooded dwarf with a goods cart
+    const cart = new THREE.Group(); root.add(cart);
+    cart.add(part(BOX, wood, 0, 0.62, 0, 1.9, 0.5, 1.2));                         // bed
+    cart.add(part(BOX, woodD, 0, 0.9, 0.62, 1.9, 0.18, 0.06));                     // front rail
+    for (const sx of [-1, 1]) { const w = part(GG.drum, woodD, sx * 1.0, 0.4, 0.2, 0.2, 0.4, 0.4); cart.add(w); cart.add(part(GG.drum, iron, sx * 1.0, 0.4, -0.3, 0.22, 0.12, 0.12)); }
+    for (const sx of [-0.85, 0.85]) cart.add(part(BOX, woodD, sx, 1.6, -0.5, 0.08, 1.7, 0.08)); // canopy posts
+    const can = part(BOX, lambert(0xb04a2a), 0, 2.45, -0.1, 2.3, 0.1, 1.6); can.rotation.x = 0.18; cart.add(can);
+    for (let i = 0; i < 4; i++) { const st = part(BOX, lambert(0xf0d8a8), -0.85 + i * 0.57, 2.46, -0.1, 0.28, 0.115, 1.62); st.rotation.x = 0.18; cart.add(st); }
+    // goods on display: three guns on a rack + crate + sack
+    const rack = part(BOX, woodD, 0, 1.15, 0.2, 1.7, 0.06, 0.06); cart.add(rack);
+    const kinds = [['rifle', 1], ['shotgun', 2], ['revolver', 3]];
+    kinds.forEach(([t, r], i) => { const gm = makeGunModel(t, r, 'none'); gm.scale.setScalar(1.55); gm.rotation.y = Math.PI / 2; gm.position.set(-0.6 + i * 0.6, 1.4, 0.2); cart.add(gm); });
+    cart.add(part(BOX, lambert(0x9a6a30), 0.55, 1.0, -0.3, 0.5, 0.4, 0.45)); cart.add(part(new THREE.IcosahedronGeometry(0.28, 0), lambert(0xc8b080), -0.6, 1.0, -0.3, 1, 1.1, 1));
+    cart.add(part(BOX, basic(0xffd24a), 0, 0.94, 0.3, 0.3, 0.05, 0.2)); // coin tray
+    const lan = new THREE.Group(); lan.position.set(1.0, 2.1, 0.5); lan.add(part(BOX, iron, 0, 0, 0, 0.14, 0.2, 0.14)); lan.add(part(BOX, basic(0xffc060), 0, 0, 0, 0.1, 0.13, 0.15)); lan.add(makeGlow(0xffb050, 1.6)); cart.add(lan);
+    const d = makeDwarf(0x7a3a2a, 0xc86a2a, 0x3e2a22, 0xffd24a); d.position.set(0, 0, 1.55); root.add(d); u.dwarf = d;
+    const tag = nameTag([['Brokk the Peddler', '#ffd08a', 32, 34], ['Weapons for 🪙 gold', '#ffe27a', 24, 78]]); tag.position.set(0, 3.05, 1.2); root.add(tag); u.tag = tag;
+  } else { // Dagna the Weaponsmith: anvil, hammer and a glowing forge
+    const anvil = new THREE.Group(); anvil.position.set(-0.45, 0, 0); root.add(anvil);
+    anvil.add(part(BOX, woodD, 0, 0.3, 0, 0.7, 0.6, 0.7));                           // stump
+    anvil.add(part(BOX, iron, 0, 0.72, 0, 0.5, 0.24, 0.3)); anvil.add(part(BOX, iron, 0, 0.93, 0, 1.0, 0.2, 0.42));
+    anvil.add(part(new THREE.ConeGeometry(0.2, 0.5, 4).rotateZ(-Math.PI / 2), iron, 0.72, 0.93, 0, 1, 1, 1)); // horn
+    anvil.add(part(BOX, basic(0xff7a1a), 0, 1.04, 0, 0.5, 0.03, 0.14)); // hot workpiece
+    const ham = new THREE.Group(); ham.position.set(0.1, 1.25, 0.5); ham.add(part(BOX, wood, 0, 0.3, 0, 0.07, 0.6, 0.07)); ham.add(part(BOX, metal, 0, 0.62, 0, 0.3, 0.2, 0.2)); anvil.add(ham); u.hammer = ham;
+    const forge = new THREE.Group(); forge.position.set(0.85, 0, -0.35); root.add(forge);
+    forge.add(part(BOX, lambert(0x5a5560), 0, 0.55, 0, 1.0, 1.1, 0.9)); forge.add(part(BOX, lambert(0x3a3640), 0, 1.15, -0.1, 1.1, 0.12, 1.0));
+    forge.add(part(BOX, lambert(0x4a4550), 0, 1.7, -0.38, 0.55, 1.2, 0.3));          // chimney
+    const coals = part(BOX, basic(0xff6a1a), 0, 1.0, 0.2, 0.7, 0.14, 0.4); forge.add(coals); u.coals = coals;
+    for (let i = 0; i < 3; i++) { const f = part(ZG_FLAME(), basic([0xff8a1a, 0xffd040, 0xff5a1a][i]), (i - 1) * 0.2, 1.3, 0.2, 1, 1, 1); forge.add(f); u.flames.push(f); }
+    forge.add(withPos(makeGlow(0xff7a1a, 2.8), 0, 1.3, 0.25));
+    // tool rack with finished blades
+    root.add(part(BOX, woodD, -1.2, 1.1, -0.45, 0.1, 2.2, 0.1)); root.add(part(BOX, woodD, -1.9, 1.1, -0.45, 0.1, 2.2, 0.1)); root.add(part(BOX, woodD, -1.55, 1.9, -0.45, 0.9, 0.08, 0.08));
+    for (let i = 0; i < 3; i++) { root.add(part(BOX, metal, -1.38 - i * 0.18, 1.45, -0.42, 0.05, 0.9, 0.02)); root.add(part(BOX, woodD, -1.38 - i * 0.18, 0.92, -0.42, 0.05, 0.2, 0.04)); }
+    const d = makeDwarf(0x3a4a5a, 0xd8d8e0, 0x2a2a34, 0xff8a2a); d.position.set(0, 0, 1.5); root.add(d); u.dwarf = d;
+    const tag = nameTag([['Dagna the Weaponsmith', '#ffb27a', 30, 34], ['Reroll 🪙 · Upgrade 🔥', '#ff9a5a', 24, 78]]); tag.position.set(0, 3.0, 1.2); root.add(tag); u.tag = tag;
+  }
+  root.userData = u;
+  return root;
+}
+function ZG_FLAME() { return ZG.flame; }
 
 // ---------------------------------------------------------------- FX
 const fx = [];
@@ -622,6 +694,7 @@ function clearWorld() {
   for (const p of particles) scene.remove(p.m); particles.length = 0;
   for (const r of rockets) if (r.mesh) scene.remove(r.mesh); rockets.length = 0;
   if (G.portal) scene.remove(G.portal.mesh);
+  for (const n of G.npcs || []) scene.remove(n.mesh); G.npcs = [];
   for (const z of G.zones.values()) scene.remove(z.mesh); G.zones.clear();
   G.enemies.clear(); G.eproj.clear(); G.pickups.clear(); G.portal = null; G.bossId = 0;
   for (const d of dnums) d.el.remove(); dnums.length = 0;
@@ -638,9 +711,11 @@ function startFloor(m) {
   applyTheme(built.theme);
   G.roomState = G.level.rooms.map(r => r.type === 'start' ? 'clear' : 'idle');
   G.activeRoom = -1;
-  if (m.fresh) { resetMe(); G.run = { rooms: 0, bosses: 0, awarded: false }; G.skillOffer = false; }
+  closeMerchant(true); M = null; me.shop = null;
+  if (m.fresh) { resetMe(); G.run = { rooms: 0, bosses: 0, awarded: false, gold: 0 }; G.skillOffer = false; }
   else if (me.down) { me.down = false; me.hp = Math.round(me.maxHp * 0.5); }
   G.bossDown = false;
+  buildNpcs();
   const s = G.level.rooms[0];
   me.x = s.cx + (G.mySlot - 1.5) * 1.5; me.z = s.cz + 3; me.y = 0; me.vy = 0; me.kbx = me.kbz = 0;
   const ex = G.level.rooms[1];
@@ -668,7 +743,7 @@ function startFloor(m) {
 }
 function resetMe() {
   const mb = me.mb = MB();
-  me.hp = me.maxHp = CH().hp + mb.hp; me.down = false; me.perks = {}; me.perkList = []; me.skillUps = {}; me.skillUpList = [];
+  me.gold = 0; goldShown = -1; me.hp = me.maxHp = CH().hp + mb.hp; me.down = false; me.perks = {}; me.perkList = []; me.skillUps = {}; me.skillUpList = [];
   // starting weapon: rarity from the Forge (Forged Sidearm), with random affixes for that rarity
   me.guns = []; me.cur = 0; vm.key = '';
   takeGun({ type: CH().gun, rarity: mb.rarity, affixes: rollAffixes(CH().gun, RARITIES[mb.rarity].affixes) }, false);
@@ -721,7 +796,7 @@ net.onMsg = (m, from) => {
       if (from === net.myId) break;
       const p = G.players.get(from); if (!p) break;
       if (m.c && m.c !== p.char) setPlayerChar(from, m.c);
-      Object.assign(p, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, hp: m.hp, maxHp: m.mh, down: !!m.d, g: !!m.g, gun: m.gun, ready: true });
+      Object.assign(p, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, hp: m.hp, maxHp: m.mh, down: !!m.d, g: !!m.g, gun: m.gun, gr: m.gr | 0, ready: true });
       if (p.rx === undefined) { p.rx = m.x; p.ry = m.y; p.rz = m.z; }
       break;
     }
@@ -817,16 +892,19 @@ function applySnap(s, local) {
 }
 function onLock(room) {
   G.activeRoom = room; G.roomState[room] = 'active';
+  if (G.merchantOpen) { closeMerchant(true); if (!isTouch && !pointerLocked) showPause(true); }
   setDoors(G.level, room, true); sfx.door(true); toast('Doors sealed — clear the room!', 2);
   if (roomAt(G.level, me.x, me.z, 0.3) !== room) { const rm = G.level.rooms[room]; me.x = rm.entryPt[0] + rand(-1, 1); me.z = rm.entryPt[1] + rand(-1, 1); me.y = 0; me.vy = 0; }
 }
 function onClear(m) {
   G.roomState[m.room] = 'clear';
   if (m.chest) { toast('Treasure room — open the chest!', 2); return; }
+  if (m.shop) { toast("🪙 Merchants' camp — safe zone. Spend your gold on weapons and upgrades!", 3.5); return; }
   G.activeRoom = -1;
   setDoors(G.level, m.room, false); sfx.door(false); sfx.clear();
   for (const p of G.eproj.values()) scene.remove(p.mesh); G.eproj.clear();
   if (G.run) { G.run.rooms++; if (m.boss) G.run.bosses++; }
+  addGold(clearGold(G.floor, m.boss), true);
   if (m.boss) { G.bossDown = true; show('bossbar', false); toast(G.floor < FLOORS ? 'Boss defeated! Choose a perk, then a skill upgrade' : 'Boss defeated!', 3); } else toast('Room cleared!', 2);
   if (me.down) { me.down = false; me.hp = Math.round(me.maxHp * 0.3); sfx.revive(); }
   setTimeout(() => { if (G.playing && !G.over && !G.perkOpen) openPerks(); }, 700);
@@ -834,6 +912,10 @@ function onClear(m) {
 function onKill(m) {
   const col = ENEMIES[m.type] ? ENEMIES[m.type].color : 0xffffff;
   burst(m.x, m.y + 1, m.z, col, m.type === 'golem' ? 40 : 12, m.type === 'golem' ? 12 : 6, m.type === 'golem' ? 0.4 : 0.18);
+  if (m.gd > 0 && !m.silent && (m.ga || m.by === net.myId)) { // gold goes to the killer; the boss pays everyone
+    addGold(m.gd); dmgNum(m.x, m.y + (ENEMIES[m.type] ? ENEMIES[m.type].h : 1.5) + 0.4, m.z, '+' + m.gd + ' 🪙', '#ffd24a');
+    if (m.ga) toast(`🪙 Boss bounty: +${m.gd} gold`, 2.5);
+  }
   if (m.by === net.myId && !m.silent) {
     sfx.kill(); G.kills++;
     if (perkN('vamp')) heal(4 * perkN('vamp'));
@@ -882,6 +964,7 @@ function onHurt(m) {
   }
 }
 function onOver(m) {
+  closeMerchant(true);
   G.over = true; G.perkOpen = false; G.skillOffer = false; setInspect(false);
   if (document.exitPointerLock && pointerLocked) document.exitPointerLock();
   m.win ? sfx.victory() : sfx.defeat();
@@ -918,18 +1001,19 @@ function applyPickup(pk) {
   } else if (pk.kind === 'gun') {
     const g = takeGun(pk.gun, true);
     sfx.gun(); toast(`Picked up ${g.name}`, 1.5);
-  } else if (pk.kind === 'chest') { sfx.perk(); }
+  } else if (pk.kind === 'chest') { sfx.perk(); const cg = chestGold(G.floor); addGold(cg); toast(`🪙 +${cg} gold from the chest`, 2); }
 }
 // Equip a weapon from a spec (fresh drops have no ammo info). Bandolier (Forge) raises reserve ammo for this player only.
-function takeGun(spec, dropOld) {
+function takeGun(spec, dropOld, slot) {
   const g = gunFromSpec(spec);
   const mul = (me.mb || MB()).ammo;
   if (g.maxReserve !== Infinity) { g.maxReserve = Math.round(g.maxReserve * mul); if (spec.reserve == null) g.reserve = g.maxReserve; }
   if (me.guns.length < 2) { me.guns.push(g); me.cur = me.guns.length - 1; }
   else {
-    const old = me.guns[me.cur];
+    const si = slot === 0 || slot === 1 ? slot : me.cur; // shop purchases choose which weapon to replace
+    const old = me.guns[si];
     if (dropOld) net.toHost({ t: 'drop', gun: gunSpec(old), x: R2(me.x - Math.sin(me.yaw) * 1.2), z: R2(me.z - Math.cos(me.yaw) * 1.2) });
-    me.guns[me.cur] = g;
+    me.guns[si] = g; me.cur = si;
   }
   me.reloadT = 0; refreshViewModel(); updateHudStatic();
   if (discover(META, g)) { persistMeta(); if (G.playing) setTimeout(() => toast(`📖 New weapon in your codex: ${g.cls}`, 2), 1600); } else persistMeta();
@@ -944,6 +1028,213 @@ function makePortal(x, z) {
   g.add(withPos(makeGlow(0xffa040, 6), 0, 2, 0));
   g.position.set(x, 0, z); scene.add(g); G.portal = { x, z, mesh: g };
 }
+
+
+// ---------------------------------------------------------------- gold (in-run currency, never saved)
+let goldShown = -1, goldGainT = 0, goldGainAcc = 0;
+function addGold(n, quiet) {
+  n = Math.floor(n); if (!(n > 0)) return;
+  me.gold = (me.gold || 0) + n; if (G.run) G.run.gold = (G.run.gold || 0) + n;
+  goldGainAcc += n; goldGainT = 1.4; if (!quiet) sfx.gold && sfx.gold();
+}
+function buildNpcs() {
+  G.npcs = [];
+  for (const rm of G.level.rooms) if (rm.type === 'shop') {
+    const sp = shopSpots(rm);
+    for (const kind of ['shop', 'smith']) {
+      const p = sp[kind], mesh = makeMerchantNpc(kind);
+      mesh.position.set(p.x, 0, p.z);
+      const ep = rm.entryPt || [rm.cx, rm.cz + 6]; mesh.rotation.y = Math.atan2(ep[0] - p.x, ep[1] - p.z);
+      scene.add(mesh);
+      G.npcs.push({ kind, x: p.x, z: p.z, room: rm.i, mesh, name: kind === 'shop' ? 'Brokk the Peddler' : 'Dagna the Weaponsmith', title: kind === 'shop' ? 'Weapon Merchant' : 'Weapon Smith' });
+    }
+  }
+}
+
+
+// ---------------------------------------------------------------- merchant UI (pause-less: the game keeps running behind a light overlay)
+// Shop (Brokk): gold -> weapons from a per-player stock, reroll stock, rations/ammo.  Smith (Dagna): gold -> reroll affixes, Embers -> upgrade rarity.
+// Everything here is local to the player: gold and stock are per player, so co-op needs no extra messages (a bought/replaced weapon
+// is dropped through the normal host-synced 'drop' message) and nothing can desync or deadlock. The merchants' camp is a safe room.
+let M = null; // { kind, sel, lock, pending, swap, msg }
+function ensureShop() {
+  if (!me.shop || me.shop.floor !== G.floor) me.shop = { floor: G.floor, n: 0, stock: genStock(stockSeed(G.seed, G.floor, net.myId, 0), G.floor, weaponPool(META), MB().luck) };
+  return me.shop;
+}
+function openMerchant(kind, npc) {
+  if (G.merchantOpen || !G.playing || G.over || me.down || G.perkOpen) return;
+  if (kind !== 'shop' && kind !== 'smith') return;
+  META = loadMeta(localStorage); // fresh Ember balance (another tab may have changed it)
+  M = { kind, sel: Math.min(me.cur, me.guns.length - 1), lock: null, pending: null, swap: null, msg: '' };
+  G.merchantOpen = true; input.fire = input.aim = false;
+  if (kind === 'shop') ensureShop();
+  if (document.exitPointerLock && pointerLocked) document.exitPointerLock();
+  setInspect(false); show('pause', false);
+  const n = npc || (G.npcs || []).find(x => x.kind === kind) || { name: kind === 'shop' ? 'Brokk the Peddler' : 'Dagna the Weaponsmith' };
+  $('mTitle').innerHTML = kind === 'shop' ? `🧔 ${n.name}<small>Weapon Merchant · buy weapons with gold · ${G.mode === 'coop' ? 'your own stock; the game keeps running' : 'the game keeps running'}</small>` : `🔨 ${n.name}<small>Weapon Smith · reroll affixes with gold · upgrade rarity with Embers</small>`;
+  $('mEmbersWrap').style.display = kind === 'smith' ? '' : 'none';
+  show('merchant', true); $('mBody').scrollTop = 0; $('mMsg').textContent = '';
+  sfx.perk(); renderMerchant();
+}
+function closeMerchant(silent) {
+  if (!G.merchantOpen) return;
+  G.merchantOpen = false; M = null; show('merchant', false); $('mMsg').textContent = '';
+  if (!silent) { sfx.pickup(); if (!isTouch) lockPointer(); }
+}
+function updateMerchantWallet() { $('mGold').textContent = me.gold || 0; $('mEmbers').textContent = META.embers; }
+function mMsg(t, bad) { if (M) M.msg = t; $('mMsg').textContent = t; $('mMsg').style.color = bad ? '#ff9a8a' : '#9dffb0'; }
+function renderMerchant() {
+  if (!M || !G.merchantOpen) return;
+  updateMerchantWallet();
+  if (M.kind === 'shop') renderShop(); else renderSmith();
+}
+function renderShop() {
+  const S = ensureShop(), cur = me.guns[me.cur], gold = me.gold || 0;
+  let h = `<div class="mnote">Stat cards compare with your equipped <b>${escapeHtml(cur.name)}</b> (▲ better, ▼ worse). Buying a weapon with both slots full replaces one of them and drops it on the floor.${isTouch ? ' Swipe sideways for more goods, rations and the stock reroll.' : ' Keys 1-4 buy, E / Esc closes.'}</div>`;
+  if (M.swap != null) {
+    const it = S.stock[M.swap], ng = gunFromSpec(it.spec);
+    h += `<div class="mswap"><b>Both weapon slots are full.</b> Which weapon do you want to replace with <span style="color:${RARITIES[ng.rarity].color}">${escapeHtml(ng.name)}</span>? It will be dropped on the floor.<br>` +
+      me.guns.map((g, i) => `<button data-swap="${i}" style="border-color:${RARITIES[g.rarity].color}">Replace slot ${i + 1}: ${escapeHtml(g.name)}${i === me.cur ? ' (equipped)' : ''}</button>`).join('') + `<button data-swap="x">Cancel</button></div>`;
+  }
+  h += '<div class="mrow">' + S.stock.map((it, i) => {
+    const g = gunFromSpec(it.spec), poor = gold < it.price;
+    return `<div class="mitem${it.sold ? ' sold' : ''}">${gunCardHTML(g, cur, `${i + 1}. For sale`, '')}` +
+      (it.sold ? '<button class="mbuy" disabled>SOLD OUT</button>' : `<button class="mbuy${poor ? ' poor' : ''}" data-buy="${i}">${poor ? `🪙 ${it.price} — need ${it.price - gold} more` : `Buy — 🪙 ${it.price}`}</button>`) + '</div>';
+  }).join('') + '</div>';
+  const rrc = stockRerollCost(S.n, G.floor), hpFull = me.hp >= me.maxHp, ammoFull = me.guns.every(g => g.reserve === Infinity || g.reserve >= g.maxReserve);
+  h += '<div class="mbar">' + CONSUMABLES.map(c => {
+    const p = consumablePrice(c.id, G.floor), full = c.id === 'heal' ? hpFull : ammoFull, poor = gold < p;
+    return `<div class="mcons"><span class="ci">${c.icon}</span><span class="t"><b>${c.name}</b><small>${c.desc}${full ? ' · (already full)' : ''}</small></span><button class="mbuy${poor || full ? ' poor' : ''}" data-cons="${c.id}">🪙 ${p}</button></div>`;
+  }).join('') + `<button class="mrr${gold < rrc ? ' poor' : ''}" data-rrstock>🎲 Reroll stock<br><small>🪙 ${rrc}${S.n ? ` (rerolled ${S.n}×, cost goes up)` : ''}</small></button></div>`;
+  $('mBody').innerHTML = h;
+}
+function shopBuy(i) {
+  const S = ensureShop(), it = S.stock[i]; if (!it || it.sold) return;
+  if ((me.gold || 0) < it.price) { sfx.deny(); mMsg(`Not enough gold: ${it.price} needed, you have ${me.gold || 0}.`, true); renderMerchant(); return; }
+  if (me.guns.length < 2) shopComplete(i, undefined); else { M.swap = i; renderMerchant(); }
+}
+function shopComplete(i, slot) {
+  const S = ensureShop(), it = S.stock[i]; if (!it || it.sold || (me.gold || 0) < it.price) return;
+  me.gold -= it.price; it.sold = true; if (G.run) G.run.spent = (G.run.spent || 0) + it.price;
+  const g = takeGun({ type: it.spec.type, rarity: it.spec.rarity, affixes: it.spec.affixes.slice() }, true, slot);
+  M.swap = null; M.sel = me.cur; sfx.buy();
+  mMsg(`Bought ${g.name} for ${it.price} gold.`); renderMerchant();
+}
+function shopConsumable(id) {
+  const p = consumablePrice(id, G.floor);
+  if (id === 'heal' && me.hp >= me.maxHp) { sfx.deny(); mMsg('You are already at full health.', true); return; }
+  if (id === 'ammo' && me.guns.every(g => g.reserve === Infinity || g.reserve >= g.maxReserve)) { sfx.deny(); mMsg('Your reserve ammo is already full.', true); return; }
+  if ((me.gold || 0) < p) { sfx.deny(); mMsg(`Not enough gold: ${p} needed, you have ${me.gold || 0}.`, true); return; }
+  me.gold -= p;
+  if (id === 'heal') { heal(50); mMsg('Ate some Forge Rations: +50 HP.'); } else { for (const g of me.guns) if (g.maxReserve !== Infinity) g.reserve = g.maxReserve; mMsg('Reserve ammo refilled.'); }
+  sfx.buy(); renderMerchant();
+}
+function shopRerollStock() {
+  const S = ensureShop(), c = stockRerollCost(S.n, G.floor);
+  if ((me.gold || 0) < c) { sfx.deny(); mMsg(`Not enough gold to reroll the stock: ${c} needed, you have ${me.gold || 0}.`, true); return; }
+  me.gold -= c; S.n++; S.stock = genStock(stockSeed(G.seed, G.floor, net.myId, S.n), G.floor, weaponPool(META), MB().luck); M.swap = null;
+  sfx.perk(); mMsg(`New stock! (cost ${c} gold)`); renderMerchant();
+}
+
+// ---- weapon smith
+// Rebuild the weapon in a slot from a new spec, keeping ammo (Bandolier etc. applied like a normal pickup)
+function reforge(slot, spec) {
+  const old = me.guns[slot]; if (!old) return null;
+  const g = gunFromSpec({ type: spec.type, rarity: spec.rarity, affixes: spec.affixes, rr: spec.rr });
+  const mul = (me.mb || MB()).ammo;
+  if (g.maxReserve !== Infinity) g.maxReserve = Math.round(g.maxReserve * mul);
+  g.ammo = Math.max(0, Math.min(g.mag * 3, old.ammo + Math.max(0, g.mag - old.mag)));
+  g.reserve = g.maxReserve === Infinity ? Infinity : Math.min(g.maxReserve, (old.reserve === Infinity ? g.maxReserve : old.reserve) + Math.max(0, g.maxReserve - old.maxReserve));
+  me.guns[slot] = g;
+  if (slot === me.cur) { me.reloadT = 0; vm.key = ''; refreshViewModel(); vm.swap = 0.4; }
+  let seen = false; for (const a of g.affixes) if (!META.affSeen[a]) { META.affSeen[a] = true; seen = true; }
+  if (seen) persistMeta();
+  updateHudStatic();
+  return g;
+}
+function renderSmith() {
+  const gold = me.gold || 0;
+  if (M.sel >= me.guns.length) M.sel = 0;
+  const g = me.guns[M.sel];
+  let h = `<div class="mnote">Pick one of your weapons. <b>Gold</b> rerolls affixes (cost goes up each time on that weapon). Rarity upgrades cost <b>Embers only</b> (${RARITY_UP_EMBERS.join(' / ')}); the Embers are taken from your saved balance immediately.</div><div class="msmithgrid">`;
+  h += '<div class="msel">' + me.guns.map((gg, i) => `<div class="mslot${i === M.sel ? ' sel' : ''}" data-sel="${i}">${gunCardHTML(gg, null, i === me.cur ? `▶ Slot ${i + 1} (equipped)` : `Slot ${i + 1}`, gg.rr ? `Rerolled ${gg.rr}×` : '')}</div>`).join('') + '</div>';
+  h += '<div class="mact">';
+  // before / after for the last reroll
+  if (M.pending && M.pending.slot === M.sel) {
+    const before = gunFromSpec(M.pending.before);
+    h += `<div class="box"><h3>Reroll result</h3><div class="mcmp"><div><h4>Before</h4>${gunCardHTML(before, null, '', '')}</div><div><h4>After (equipped now)</h4>${gunCardHTML(g, before, '', '')}</div></div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="mbtn" style="background:linear-gradient(#3ea85a,#23743a)" data-keep>✔ Keep new</button><button class="mbtn" data-revert>↩ Revert to old (once, no refund)</button></div></div>`;
+  }
+  // reroll
+  const block = rerollBlock(g.rarity, g.affixes), lock = g.affixes.includes(M.lock) ? M.lock : null, cost = rerollCost(g.rarity, g.rr, !!lock), poor = gold < cost;
+  h += `<div class="box"><h3>🎲 Reroll affixes — gold</h3>`;
+  if (block) h += `<div class="mnote warn">${block}</div>`;
+  else {
+    h += `<div class="mnote">Tap an affix to lock it (it is kept; +75% cost).</div>` + g.affixes.map(id => `<span class="affchip${lock === id ? ' lock' : ''}" data-lock="${id}" title="${AFFIX[id].desc}">${lock === id ? '🔒' : '◆'} ${AFFIX[id].name}</span>`).join('');
+    h += `<button class="mbtn mrr${poor ? ' poor' : ''}" data-reroll style="margin-top:6px">${lock ? `Reroll, keep ${AFFIX[lock].name}` : 'Reroll all affixes'} — 🪙 ${cost}</button>`;
+    h += `<div class="mnote${poor ? ' warn' : ''}">${poor ? `Need ${cost - gold} more gold. ` : ''}Rerolled ${g.rr}× so far on this weapon; the next one costs more.</div>`;
+  }
+  h += '</div>';
+  // upgrade rarity (Embers only)
+  const up = rarityUpCost(g.rarity), emb = META.embers;
+  h += `<div class="box"><h3>⭐ Upgrade rarity — Embers only</h3>`;
+  if (up == null) h += `<div class="mnote">This weapon is already <b style="color:${RARITIES[3].color}">Legendary</b> (max rarity).</div>`;
+  else {
+    const R = RARITIES[g.rarity], N = RARITIES[g.rarity + 1], can = emb >= up;
+    h += `<div class="mnote"><span style="color:${R.color}">${R.name}</span> → <b style="color:${N.color}">${N.name}</b>: +1 affix slot (keeps your current affixes), damage ×${R.dmg} → ×${N.dmg}, fire rate ×${R.rate} → ×${N.rate}, magazine ×${R.mag} → ×${N.mag}.</div>`;
+    h += `<button class="mbtn ember${can ? '' : ' poor'}" data-up>⭐ Upgrade to ${N.name} — 🔥 ${up} Embers</button>`;
+    h += `<div class="mnote${can ? '' : ' warn'}">${can ? `You have ${emb} Embers (${emb - up} after).` : `Not enough Embers: you have ${emb}, you need ${up}. Embers are earned at the end of each run; gold cannot buy them.`}</div>`;
+  }
+  h += '</div></div></div>';
+  $('mBody').innerHTML = h;
+}
+function smithReroll() {
+  const g = me.guns[M.sel]; if (!g) return;
+  const block = rerollBlock(g.rarity, g.affixes); if (block) { sfx.deny(); mMsg(block, true); return; }
+  const lock = g.affixes.includes(M.lock) ? M.lock : null, cost = rerollCost(g.rarity, g.rr, !!lock);
+  if ((me.gold || 0) < cost) { sfx.deny(); mMsg(`Not enough gold: ${cost} needed, you have ${me.gold || 0}.`, true); renderMerchant(); return; }
+  me.gold -= cost; if (G.run) G.run.spent = (G.run.spent || 0) + cost;
+  const before = { type: g.type, rarity: g.rarity, affixes: g.affixes.slice(), rr: g.rr + 1 };
+  const aff = rerollAffixes(g.type, g.rarity, g.affixes, lock);
+  const ng = reforge(M.sel, { type: g.type, rarity: g.rarity, affixes: aff, rr: g.rr + 1 });
+  M.pending = { slot: M.sel, before }; if (!ng.affixes.includes(M.lock)) M.lock = null;
+  sfx.anvil(); mMsg(`Rerolled for ${cost} gold. Keep the new affixes or revert once.`); renderMerchant();
+}
+function smithRevert() {
+  const p = M.pending; if (!p) return;
+  M.pending = null; reforge(p.slot, p.before); M.lock = null; sfx.reload(); mMsg('Reverted to the previous affixes (the gold is not refunded).'); renderMerchant();
+}
+// Rarity upgrade: Embers only. The Ember spend is written to localStorage BEFORE the weapon changes, from a freshly loaded save,
+// so reloading / a second tab can never bring the Embers back, and a failed save cancels the upgrade.
+function smithUpgrade() {
+  const g = me.guns[M.sel]; if (!g) return;
+  const cost = rarityUpCost(g.rarity); if (cost == null) { sfx.deny(); mMsg('Already Legendary.', true); return; }
+  META = loadMeta(localStorage);
+  if (META.embers < cost) { sfx.deny(); mMsg(`Not enough Embers: you have ${META.embers}, you need ${cost}. Rarity upgrades cost Embers only.`, true); renderMerchant(); return; }
+  const r = spendEmbers(META, cost);
+  if (!r.ok || !saveMeta(localStorage, META)) { META = loadMeta(localStorage); sfx.deny(); mMsg('Could not save your Embers (is storage blocked?). Upgrade cancelled, nothing was spent.', true); renderMerchant(); return; }
+  M.pending = null; updateMenuEmbers();
+  const up = upgradeRarity(g.type, g.rarity, g.affixes);
+  const ng = reforge(M.sel, { type: g.type, rarity: up.rarity, affixes: up.affixes, rr: g.rr });
+  sfx.anvil(); sfx.perk(); burst(me.x, 1.2, me.z, RARITIES[ng.rarity].hex, 12, 5, 0.14);
+  mMsg(`Upgraded to ${RARITIES[ng.rarity].name} for ${cost} Embers (saved). ${ng.name}`); renderMerchant();
+}
+$('mClose').addEventListener('click', () => closeMerchant());
+$('mBody').addEventListener('click', (e) => {
+  if (!M) return;
+  const q = (sel) => e.target.closest(sel);
+  let t;
+  if ((t = q('[data-buy]'))) shopBuy(+t.dataset.buy);
+  else if ((t = q('[data-swap]'))) { if (t.dataset.swap === 'x') { M.swap = null; renderMerchant(); } else shopComplete(M.swap, +t.dataset.swap); }
+  else if ((t = q('[data-cons]'))) shopConsumable(t.dataset.cons);
+  else if (q('[data-rrstock]')) shopRerollStock();
+  else if ((t = q('[data-lock]'))) { M.lock = M.lock === t.dataset.lock ? null : t.dataset.lock; renderMerchant(); }
+  else if (q('[data-reroll]')) smithReroll();
+  else if (q('[data-keep]')) { M.pending = null; mMsg('Kept the new affixes.'); renderMerchant(); }
+  else if (q('[data-revert]')) smithRevert();
+  else if (q('[data-up]')) smithUpgrade();
+  else if ((t = q('[data-sel]'))) { M.sel = +t.dataset.sel; M.lock = null; renderMerchant(); }
+});
 
 // ---------------------------------------------------------------- perks
 let perkChoices = [];
@@ -963,6 +1254,7 @@ function renderCards(boxId, list, owned, onPick) {
   });
 }
 function openPickScreen(mode) {
+  closeMerchant(true);
   G.perkOpen = true; G.pickMode = mode; input.fire = false;
   show('pause', false); setInspect(false); screenOnly('perks');
   if (document.exitPointerLock && pointerLocked) document.exitPointerLock();
@@ -1206,6 +1498,7 @@ function updateMe(dt) {
   me.yaw -= input.lookX * sens; me.pitch = clamp(me.pitch - input.lookY * sens, -1.5, 1.5);
   input.lookX = input.lookY = 0;
   if (G.paused) return;
+  if (G.merchantOpen) { input.fire = false; input.aim = false; input.jump = input.dash = input.skill = input.reload = input.swap = false; input.slot = -1; if (me.down) closeMerchant(true); }
   // timers
   me.dashCd -= dt; me.shieldT -= dt; me.armorT -= dt; me.warT -= dt; me.hasteT -= dt;
   // skill charges recharge one at a time
@@ -1230,7 +1523,7 @@ function updateMe(dt) {
   // movement input
   let mx = input.mx, mz = input.mz;
   if (!isTouch) { mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0); mz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0); const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; } }
-  if (me.down) { mx = mz = 0; }
+  if (me.down || G.merchantOpen) { mx = mz = 0; }
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const wx = -sy * mz + cy * mx, wz = -cy * mz - sy * mx;
   const cg0 = me.guns[me.cur];
@@ -1271,10 +1564,11 @@ function updateMe(dt) {
     }
   }
   if (input.skill) useSkill();
-  // pickups (Lodestone in the Forge widens the range)
+  // pickups (Lodestone in the Forge widens the range). The weapon card only shows when you are close (CARD_RANGE) and roughly looking at it.
   const pr = me.mb ? me.mb.pickup : 1;
   let near = null, nd = 2.4 * pr;
-  if (!me.down) for (const p of G.pickups.values()) {
+  const pickRange = nd;
+  if (!me.down && !G.merchantOpen) for (const p of G.pickups.values()) {
     if (me.pending.has(p.id)) continue;
     const d = Math.hypot(p.x - me.x, p.z - me.z);
     if (p.kind === 'hp' && d < 1.6 * pr && me.hp < me.maxHp) { me.pending.add(p.id); net.toHost({ t: 'pick', id: p.id }); }
@@ -1282,18 +1576,33 @@ function updateMe(dt) {
     else if ((p.kind === 'gun' || p.kind === 'chest') && d < nd) { near = p; nd = d; }
   }
   G.nearPick = near;
-  // looking at a weapon further away shows its card too (can't take it from there)
-  G.lookPick = null;
-  if (!near && !me.down) {
-    const f = camForward(tmpV); let best = 0.985;
+  // The tooltip card: a weapon/chest within CARD_RANGE that you are looking roughly at (or standing right on top of).
+  // Taking it (E / USE) still works anywhere inside the normal pickup range, preferring the item you are looking at.
+  G.cardPick = null; G.lookPick = null; G.pickRange = pickRange;
+  const cardRange = Math.max(CARD_RANGE, pickRange + 0.8);
+  if (!me.down && !G.merchantOpen) {
+    let best = 1e9;
     for (const p of G.pickups.values()) {
-      if (p.kind !== 'gun') continue;
-      const dx = p.x - me.x, dy = 1.0 - (me.y + 1.6), dz = p.z - me.z, d = Math.hypot(dx, dy, dz);
-      if (d > 9) continue;
-      const c = (dx * f.x + dy * f.y + dz * f.z) / d; if (c > best) { best = c; G.lookPick = p; }
+      if (p.kind !== 'gun' && p.kind !== 'chest') continue;
+      const dx = p.x - me.x, dy = 1.0 - (me.y + 1.6), dz = p.z - me.z, hd = Math.hypot(dx, dz);
+      if (hd > cardRange) continue;
+      let score = 0; // standing on it counts as looking at it; otherwise the view direction must be roughly toward it
+      if (hd >= 1.0) {
+        const dyaw = Math.abs((((Math.atan2(-dx, -dz) - me.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI), dpit = Math.abs(Math.atan2(dy, hd) - me.pitch);
+        if (dyaw > CARD_LOOK_YAW || dpit > CARD_LOOK_PITCH) continue;
+        score = dyaw + dpit + 0.01;
+      }
+      if (score < best) { best = score; G.cardPick = p; }
     }
+    if (G.cardPick && Math.hypot(G.cardPick.x - me.x, G.cardPick.z - me.z) < pickRange && !me.pending.has(G.cardPick.id)) { near = G.cardPick; nd = Math.hypot(near.x - me.x, near.z - me.z); G.nearPick = near; }
+    G.lookPick = G.cardPick;
   }
-  if (near && input.use) { const id = near.id; me.pending.add(id); net.toHost({ t: 'pick', id }); setTimeout(() => me.pending.delete(id), 1500); }
+  // merchants: the nearest one within NPC_RANGE (a weapon you can take wins if it is closer)
+  G.nearNpc = null;
+  if (!me.down && !G.merchantOpen && G.npcs) { let bd = NPC_RANGE + 0.4; for (const n of G.npcs) { const d = Math.hypot(n.x - me.x, n.z - me.z); if (d < bd) { bd = d; G.nearNpc = n; G.nearNpcD = d; } } }
+  if (G.nearNpc && near && nd < G.nearNpcD) G.nearNpc = null;
+  if (G.nearNpc && !near && input.use) openMerchant(G.nearNpc.kind, G.nearNpc);
+  else if (near && input.use) { const id = near.id; me.pending.add(id); net.toHost({ t: 'pick', id }); setTimeout(() => me.pending.delete(id), 1500); }
   // being revived (the downed client decides)
   if (me.down && G.mode === 'coop') {
     let helper = null, rate = 0;
@@ -1315,7 +1624,7 @@ function updateMe(dt) {
   sendAcc += dt;
   if (net.online && sendAcc > 0.05) {
     sendAcc = 0;
-    net.others({ t: 'p', x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), hp: Math.round(me.hp), mh: me.maxHp, d: me.down ? 1 : 0, g: me.grounded ? 1 : 0, gun: cg.type, c: CHAR });
+    net.others({ t: 'p', x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), hp: Math.round(me.hp), mh: me.maxHp, d: me.down ? 1 : 0, g: me.grounded ? 1 : 0, gun: cg.type, gr: cg.rarity, c: CHAR });
   }
 }
 
@@ -1409,12 +1718,24 @@ function updateWorldVisuals(dt, t) {
     const u = p.mesh.userData; u.fig.rotation.y = p.yaw;
     u.fig.rotation.z = p.down ? Math.PI / 2 : 0; u.fig.position.y = p.down ? 0.4 : 0;
     u.ring.visible = !!p.down; if (p.down) u.ring.rotation.z = t;
+    if (u.gunMat && u.gr !== p.gr) { u.gr = p.gr; const rc = new THREE.Color(RARITIES[Math.max(0, Math.min(3, p.gr | 0))].hex); u.gunMat.color.copy(rc.clone().multiplyScalar(p.gr > 0 ? 0.55 : 0.35)); u.gunMat.emissive.copy(rc).multiplyScalar(p.gr > 0 ? 0.35 : 0); } // upgraded weapons glow in their rarity colour for teammates
   }
   for (const p of G.pickups.values()) {
     const s = p.mesh.userData.spin;
     if (s) { s.rotation.y = t * 1.5; s.position.y = (p.kind === 'gun' ? 1.0 : 0.7) + Math.sin(t * 3 + p.id) * 0.12; }
   }
   if (G.portal) { G.portal.mesh.rotation.y = t * 0.8; }
+  for (const n of G.npcs || []) { // merchants idle: dwarves bob, the smith hammers, the forge flickers and throws sparks
+    const u = n.mesh.userData, d = u.dwarf.userData;
+    u.dwarf.position.y = Math.abs(Math.sin(t * 2 + n.x)) * 0.04;
+    if (n.kind === 'smith') {
+      const swing = Math.max(0, Math.sin(t * 5)); u.hammer.rotation.x = -swing * 1.2; d.armR.rotation.x = -swing * 1.1;
+      if (swing > 0.97 && !n.hit) { n.hit = true; if (Math.hypot(me.x - n.x, me.z - n.z) < 14) { burst(n.x - 0.45, 1.1, n.z, 0xffa030, 4, 3.5, 0.07); if (Math.hypot(me.x - n.x, me.z - n.z) < 9) sfx.anvil(); } } else if (swing < 0.5) n.hit = false;
+      u.flames.forEach((f, i) => { f.scale.y = 0.8 + 0.35 * Math.sin(t * 12 + i * 1.7); f.rotation.y = t * 2 + i; });
+      u.coals.material = basic(Math.sin(t * 6) > 0 ? 0xff6a1a : 0xff8a2a);
+    } else { d.armL.rotation.z = Math.sin(t * 1.6 + n.z) * 0.15; }
+    if (u.tag) u.tag.material.opacity = Math.min(1, Math.max(0.35, 1.3 - Math.hypot(me.x - n.x, me.z - n.z) / 16));
+  }
   // beacon -> where to go next
   if (beacon && G.level) {
     let target = null;
@@ -1498,10 +1819,10 @@ function gunCardHTML(g, cmp, head, foot) {
 }
 let cardKey = '', inspectOn = false;
 function updateGunCard() {
-  const pk = G.nearPick || G.lookPick;
+  const pk = G.cardPick;
   let key = '', html = '';
   if (pk && !me.down && !G.perkOpen && !inspectOn) {
-    const cur = me.guns[me.cur], inRange = pk === G.nearPick, act = isTouch ? 'Tap USE' : 'Press E';
+    const cur = me.guns[me.cur], inRange = Math.hypot(pk.x - me.x, pk.z - me.z) < (G.pickRange || 2.4), act = isTouch ? 'Tap USE' : 'Press E';
     key = pk.id + '|' + (cur ? cur.name + cur.rarity : '') + '|' + me.guns.length + '|' + inRange;
     if (key !== cardKey) {
       if (pk.kind === 'chest') html = `<div class="gcard" style="--rc:#ffd040"><div class="gc-name">Forge Chest</div><div class="gc-sub">2 weapons (better rarity odds) + health + ammo</div><div class="gc-foot">${act} to open</div></div>`;
@@ -1550,10 +1871,15 @@ function updateHud(dt) {
   setHTML('gunSlots', me.guns.map((gg, i) => `<div class="slot ${i === me.cur ? 'cur' : ''}" style="border-color:${RARITIES[gg.rarity].color}"><span class="k">${i + 1}</span><span style="color:${RARITIES[gg.rarity].color}">${gg.name}</span>${gg.el !== 'none' ? `<i>${ELEMENTS[gg.el].icon}</i>` : ''}<small>${gg.dmg}${gg.pellets > 1 ? '×' + gg.pellets : ''} dmg</small></div>`).join('') + (isTouch ? '' : '<div class="ihint">Hold Tab to inspect</div>'));
   let pr = '';
   if (G.nearPick && !me.down) pr = '';
+  else if (G.nearNpc && !me.down && !G.merchantOpen) pr = `<span class="npcPrompt">${isTouch ? 'Tap USE' : 'Press E'} — ${G.nearNpc.name} (${G.nearNpc.title})</span>`;
   else if (G.revivingName) pr = `Reviving ${escapeHtml(G.revivingName)}… ${Math.round(G.revivingP * 100)}%`;
   setHTML('prompt', pr);
   updateGunCard();
-  if (isTouch) $('btnUse').style.display = G.nearPick && !me.down ? '' : 'none';
+  if (isTouch) $('btnUse').style.display = (G.nearPick || G.nearNpc) && !me.down && !G.merchantOpen ? '' : 'none';
+  // gold
+  const gold = me.gold || 0;
+  if (goldShown !== gold) { goldShown = gold; setText('goldText', String(gold)); if (G.merchantOpen) updateMerchantWallet(); }
+  if (goldGainT > 0) { goldGainT -= dt; $('goldGain').textContent = '+' + goldGainAcc; $('goldGain').classList.add('on'); if (goldGainT <= 0) { goldGainAcc = 0; $('goldGain').classList.remove('on'); } }
   show('downed', me.down);
   if (me.down) setText('downedText', G.mode === 'coop' ? `DOWNED — a teammate must stand next to you (${Math.round(me.reviveP * 100)}%)` : 'DOWNED');
   if (G.mode === 'coop') {
@@ -1742,7 +2068,7 @@ $('againBtn').addEventListener('click', () => {
 $('menuBtn').addEventListener('click', () => leaveGame());
 $('muteBtn').addEventListener('click', () => { setMuted(!isMuted()); $('muteBtn').textContent = isMuted() ? '🔇 Sound off' : '🔊 Sound on'; });
 function leaveGame(msg) {
-  net.close(); G.playing = false; G.over = false; G.host = null; G.perkOpen = false; G.paused = false; G.mode = 'solo'; G.skillOffer = false;
+  closeMerchant(true); net.close(); G.playing = false; G.over = false; G.host = null; G.perkOpen = false; G.paused = false; G.mode = 'solo'; G.skillOffer = false;
   setInspect(false); cardKey = ''; $('gunCard').classList.add('hidden'); updateMenuEmbers(); renderCharPicker('charSelect', false);
   clearWorld();
   for (const p of G.players.values()) if (p.mesh) scene.remove(p.mesh);
