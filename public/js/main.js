@@ -1,6 +1,6 @@
 // Ember Run - client: rendering, input, local player, UI, networking glue.
 import * as THREE from 'three';
-import { PERKS, ENEMIES, ENEMY_TYPES, RARITIES, ELEMENTS, PLAYER_COLORS, PLAYER_COLOR_CSS, FLOORS, makeGun, gunSpec, gunFromSpec, clamp, rand } from './data.js';
+import { PERKS, ENEMIES, ENEMY_TYPES, RARITIES, ELEMENTS, PLAYER_COLORS, PLAYER_COLOR_CSS, FLOORS, CHARACTERS, CHAR_IDS, charOf, GUN_TYPES, makeGun, gunSpec, gunFromSpec, clamp, rand } from './data.js';
 import { genLevel, buildLevelMesh, collide, rayBoxes, roomAt, setDoors, pointInSolid } from './level.js';
 import { HostSim } from './host.js';
 import { Net, SERVER_OVERRIDE } from './net.js';
@@ -112,16 +112,17 @@ const net = new Net();
 const G = {
   net, host: null, players: new Map(), level: null, levelGroup: null, playing: false, mode: 'solo', paused: false, over: false,
   floor: 1, seed: 0, roomState: [], activeRoom: -1, enemies: new Map(), eproj: new Map(), pickups: new Map(), portal: null,
-  bossId: 0, shake: 0, perkOpen: false, roster: [], mySlot: 0, lastSend: 0, lastSnapSend: 0, kills: 0, runStart: 0,
+  bossId: 0, shake: 0, perkOpen: false, zones: new Map(), roster: [], mySlot: 0, lastSend: 0, lastSnapSend: 0, kills: 0, runStart: 0,
 };
 window.__G = G; // debug handle
 const me = { x: 0, y: 0, z: 0, vy: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, down: false, guns: [], cur: 0, perks: {}, perkList: [], pending: new Set() };
 window.__me = me;
-window.__dbg = { G, me, get input() { return input; }, openPerks: () => openPerks(), choosePerk: (i) => choosePerk(i) };
+window.__dbg = { G, me, get input() { return input; }, openPerks: () => openPerks(), choosePerk: (i) => choosePerk(i), get char() { return CHAR; }, setChar: (c) => selectChar(c), useSkill: () => useSkill() };
 function perkN(id) { return me.perks[id] || 0; }
 
 let NAME = localStorage.getItem('ember_name') || ('Ember' + Math.floor(Math.random() * 900 + 100));
-let SKILL = localStorage.getItem('ember_skill') || 'grenade';
+let CHAR = charOf(localStorage.getItem('ember_char') || 'cinder');
+function CH() { return CHARACTERS[CHAR]; }
 let SENS = parseFloat(localStorage.getItem('ember_sens') || '1');
 
 // ---------------------------------------------------------------- input
@@ -298,24 +299,59 @@ function makeEnemyMesh(type) {
   g.add(hb); g.userData.hb = hb; g.userData.fill = fill;
   return g;
 }
-function makePlayerMesh(slot, name) {
-  const g = new THREE.Group(), col = PLAYER_COLORS[slot % 4];
-  const mat = lambert(col), dark = lambert(0x2a2a3a);
+// Distinct low-poly avatar per character (what teammates see) + slot-coloured belt and name tag
+const AV = { cyl: new THREE.CylinderGeometry(0.32, 0.38, 1.0, 6), robe: new THREE.CylinderGeometry(0.22, 0.46, 1.15, 6), head: new THREE.IcosahedronGeometry(0.28, 0), cone4: new THREE.ConeGeometry(0.16, 0.5, 4), flame: new THREE.ConeGeometry(0.2, 0.55, 5), hood: new THREE.ConeGeometry(0.34, 0.6, 6), ring: new THREE.RingGeometry(1.6, 1.9, 20) };
+function makePlayerMesh(slot, name, char) {
+  char = charOf(char);
+  const C = CHARACTERS[char], g = new THREE.Group(), col = PLAYER_COLORS[slot % 4];
+  const mat = lambert(C.color), acc = lambert(C.accent, C.accent === 0xffc040 || C.accent === 0xff8a2a ? new THREE.Color(C.accent).multiplyScalar(0.35) : 0), dark = lambert(0x2a2a3a), team = basic(col);
   const fig = new THREE.Group(); g.add(fig);
-  fig.add(part(new THREE.CylinderGeometry(0.32, 0.38, 1.0, 6), mat, 0, 0.95, 0));
-  fig.add(part(new THREE.IcosahedronGeometry(0.28, 0), mat, 0, 1.68, 0));
-  fig.add(part(BOX, basic(0x9ff8ff), 0, 1.7, -0.22, 0.38, 0.12, 0.1));
+  const visor = basic(0x9ff8ff);
+  let gunY = 1.15, tagY = 2.45;
+  if (char === 'cinder') { // fire gunner: flame crest, fuel tanks on the back, glowing gauntlet
+    fig.add(part(AV.cyl, mat, 0, 0.95, 0));
+    fig.add(part(AV.head, mat, 0, 1.68, 0));
+    fig.add(part(BOX, basic(0xffd060), 0, 1.7, -0.22, 0.38, 0.12, 0.1));
+    fig.add(part(AV.flame, basic(0xff8a1a), 0, 2.05, 0.05)); fig.add(part(AV.flame, basic(0xffd040), 0, 1.98, -0.05, 0.6, 0.7, 0.6));
+    fig.add(part(new THREE.CylinderGeometry(0.11, 0.11, 0.55, 6), acc, -0.14, 1.05, 0.36)); fig.add(part(new THREE.CylinderGeometry(0.11, 0.11, 0.55, 6), acc, 0.14, 1.05, 0.36));
+    fig.add(part(BOX, basic(0xff6a1a), 0.32, 1.0, -0.15, 0.2, 0.2, 0.2));
+  } else if (char === 'frost') { // ice warden: crystal shoulders, shard crown, slab shield on the left arm
+    fig.add(part(AV.cyl, mat, 0, 0.95, 0));
+    fig.add(part(AV.head, lambert(0xe8fbff), 0, 1.68, 0));
+    fig.add(part(BOX, basic(0x2a6fd0), 0, 1.7, -0.22, 0.38, 0.12, 0.1));
+    for (const [x, y, z, sc] of [[-0.42, 1.45, 0, 0.22], [0.42, 1.45, 0, 0.22], [0, 2.05, 0, 0.16], [-0.16, 1.98, 0.02, 0.11], [0.16, 1.98, 0.02, 0.11]]) fig.add(part(SHARD, acc, x, y, z, sc, sc * 1.1, sc));
+    fig.add(part(BOX, lambert(0xbfeaff), -0.46, 1.0, -0.12, 0.08, 0.75, 0.55));
+  } else if (char === 'anvil') { // forge tank: wide iron body, anvil helmet, big pauldrons, hammer on the back
+    fig.add(part(BOX, mat, 0, 0.95, 0, 0.95, 1.0, 0.65));
+    fig.add(part(BOX, dark, 0, 1.68, 0, 0.5, 0.42, 0.46));
+    fig.add(part(BOX, mat, 0, 1.92, 0, 0.72, 0.14, 0.38)); fig.add(part(BOX, mat, 0.26, 1.92, 0, 0.3, 0.1, 0.2));
+    fig.add(part(BOX, basic(0xff8a2a), 0, 1.7, -0.24, 0.36, 0.08, 0.04));
+    fig.add(part(BOX, acc, -0.6, 1.4, 0, 0.34, 0.26, 0.6)); fig.add(part(BOX, acc, 0.6, 1.4, 0, 0.34, 0.26, 0.6));
+    fig.add(part(BOX, dark, 0, 1.15, 0.38, 0.1, 1.1, 0.1)); fig.add(part(BOX, lambert(0x8a8f9a), 0, 1.75, 0.38, 0.55, 0.28, 0.3));
+    g.scale.setScalar(1.12); gunY = 1.1;
+  } else { // medic: robe, hood, healing lantern
+    fig.add(part(AV.robe, mat, 0, 0.82, 0));
+    fig.add(part(AV.head, lambert(0xffe6b0), 0, 1.62, 0));
+    fig.add(part(AV.hood, lambert(0x3a8a5a), 0, 1.86, 0.04));
+    fig.add(part(BOX, visor, 0, 1.62, -0.22, 0.34, 0.1, 0.1));
+    fig.add(part(BOX, basic(0x5cff8a), 0, 1.1, -0.3, 0.1, 0.3, 0.04)); fig.add(part(BOX, basic(0x5cff8a), 0, 1.1, -0.3, 0.3, 0.1, 0.04));
+    const lan = new THREE.Group(); lan.position.set(-0.42, 0.9, -0.1);
+    lan.add(part(BOX, dark, 0, 0, 0, 0.16, 0.22, 0.16)); lan.add(part(BOX, basic(0xffc060), 0, 0, 0, 0.12, 0.14, 0.17)); lan.add(makeGlow(0xffb050, 0.8)); fig.add(lan);
+  }
+  // team-colour belt + legs
+  fig.add(part(BOX, team, 0, 0.55, 0, char === 'anvil' ? 1.0 : 0.72, 0.1, char === 'anvil' ? 0.7 : 0.72));
   fig.add(part(BOX, dark, -0.15, 0.25, 0, 0.18, 0.5, 0.2)); fig.add(part(BOX, dark, 0.15, 0.25, 0, 0.18, 0.5, 0.2));
-  const gun = part(BOX, dark, 0.3, 1.15, -0.4, 0.12, 0.14, 0.7); fig.add(gun);
-  // name tag
-  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
-  const x = c.getContext('2d'); x.font = 'bold 34px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.8)'; x.strokeText(name, 128, 32); x.fillStyle = PLAYER_COLOR_CSS[slot % 4]; x.fillText(name, 128, 32);
+  const gun = part(BOX, dark, 0.3, gunY, -0.4, 0.12, 0.14, 0.7); fig.add(gun);
+  // name tag: player name (team colour) + character (character colour)
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const x = c.getContext('2d'); x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,0.8)';
+  x.font = 'bold 34px system-ui, sans-serif'; x.strokeText(name, 128, 30); x.fillStyle = PLAYER_COLOR_CSS[slot % 4]; x.fillText(name, 128, 30);
+  x.font = 'bold 26px system-ui, sans-serif'; const sub = `${C.name} · ${C.role}`; x.strokeText(sub, 128, 72); x.fillStyle = C.css; x.fillText(sub, 128, 72);
   const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  tag.scale.set(1.8, 0.45, 1); tag.position.y = 2.35; tag.renderOrder = 10; g.add(tag);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.9, 20), basic(0x40ff80, { transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+  tag.scale.set(1.8, 0.675, 1); tag.position.y = tagY; tag.renderOrder = 10; g.add(tag);
+  const ring = new THREE.Mesh(AV.ring, basic(0x40ff80, { transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.visible = false; g.add(ring);
-  g.userData = { fig, ring, gun };
+  g.userData = { fig, ring, gun, char };
   return g;
 }
 function makeGunModel(type, rarity, el) {
@@ -406,6 +442,67 @@ function spawnFx(x, z, d, big) {
   if (Math.hypot(me.x - x, me.z - z) < 30) sfx.spawn();
 }
 
+// ---- character skill visuals
+const ZG = { disc: new THREE.CircleGeometry(1, 14), ring: new THREE.RingGeometry(0.92, 1, 28), flame: new THREE.ConeGeometry(0.22, 0.8, 5), log: new THREE.CylinderGeometry(0.09, 0.09, 1.1, 5), crystal: new THREE.OctahedronGeometry(1, 0) };
+function addZoneVis(z) {
+  if (G.zones.has(z.id)) return;
+  const g = new THREE.Group(); g.position.set(z.x, 0, z.z);
+  const u = { flames: [] };
+  if (z.kind === 'fire') {
+    const pool = new THREE.Mesh(ZG.disc, new THREE.MeshBasicMaterial({ color: 0xff4a10, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    pool.rotation.x = -Math.PI / 2; pool.position.y = 0.06; pool.scale.setScalar(z.r); g.add(pool); u.pool = pool;
+    const rim = new THREE.Mesh(ZG.ring, basic(0xffb040, { transparent: true, opacity: 0.8, side: THREE.DoubleSide })); rim.rotation.x = -Math.PI / 2; rim.position.y = 0.07; rim.scale.setScalar(z.r); g.add(rim);
+    const n = isTouch ? 4 : 7;
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + Math.random(), d = Math.random() * z.r * 0.75; const f = part(ZG.flame, basic(i % 2 ? 0xff8a1a : 0xffd040), Math.sin(a) * d, 0.35, Math.cos(a) * d); g.add(f); u.flames.push(f); }
+    g.add(withPos(makeGlow(0xff6a1a, z.r * 1.3), 0, 0.4, 0));
+  } else if (z.kind === 'wall') {
+    const w = new THREE.Group(); w.rotation.y = z.yaw; g.add(w);
+    const ice = new THREE.MeshLambertMaterial({ color: 0x9fe4ff, emissive: 0x1a4a70, transparent: true, opacity: 0.72, flatShading: true });
+    w.add(part(BOX, ice, 0, 1.3, 0, z.len, 2.6, 0.45));
+    const n = Math.round(z.len / 1.1);
+    for (let i = 0; i < n; i++) { const x = -z.len / 2 + (i + 0.5) * z.len / n; w.add(part(ZG.crystal, ice, x, 2.6 + (i % 2) * 0.25, 0, 0.32, 0.7 + (i % 3) * 0.2, 0.3)); }
+    w.add(part(BOX, basic(0xe8fbff), 0, 0.05, 0, z.len + 0.3, 0.1, 0.8));
+    u.ice = ice; g.scale.y = 0.05;
+  } else if (z.kind === 'hearth') {
+    for (let i = 0; i < 4; i++) { const l = part(ZG.log, lambert(0x6a4020), 0, 0.12, 0); l.rotation.z = Math.PI / 2; l.rotation.y = i * Math.PI / 4; g.add(l); }
+    for (let i = 0; i < 3; i++) { const f = part(ZG.flame, basic([0xff8a1a, 0xffd040, 0xff5a1a][i]), (i - 1) * 0.15, 0.55, (i % 2) * 0.12, 1.2 - i * 0.2, 1.3 - i * 0.2, 1.2 - i * 0.2); g.add(f); u.flames.push(f); }
+    const ring = new THREE.Mesh(ZG.ring, basic(0x5cff8a, { transparent: true, opacity: 0.6, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; ring.scale.setScalar(z.r); g.add(ring); u.ring = ring;
+    const area = new THREE.Mesh(ZG.disc, new THREE.MeshBasicMaterial({ color: 0x40ff80, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false })); area.rotation.x = -Math.PI / 2; area.position.y = 0.05; area.scale.setScalar(z.r); g.add(area);
+    g.add(withPos(makeGlow(0xffa040, 2.2), 0, 0.7, 0));
+    if (Math.hypot(me.x - z.x, me.z - z.z) < 30) sfx.revive();
+  }
+  scene.add(g);
+  G.zones.set(z.id, { ...z, mesh: g, u, life: z.dur, healAcc: 0 });
+}
+function updateZones(dt, t) {
+  for (const [id, z] of G.zones) {
+    z.life -= dt;
+    if (z.life <= 0) { scene.remove(z.mesh); G.zones.delete(id); continue; }
+    const fade = Math.min(1, z.life / 0.6), u = z.u;
+    for (let i = 0; i < u.flames.length; i++) { const f = u.flames[i]; f.scale.y = (0.8 + 0.35 * Math.sin(t * 12 + i * 1.7)) * fade; f.rotation.y = t * 2 + i; }
+    if (z.kind === 'fire') { u.pool.material.opacity = 0.45 * fade + 0.1 * Math.sin(t * 9); if (Math.random() < dt * 6) burst(z.x + rand(-z.r, z.r) * 0.6, 0.3, z.z + rand(-z.r, z.r) * 0.6, 0xff8a1a, 1, 2, 0.1); }
+    else if (z.kind === 'wall') { z.mesh.scale.y = Math.min(1, z.mesh.scale.y + dt * 6) * (z.life < 0.4 ? z.life / 0.4 : 1); }
+    else if (z.kind === 'hearth') { u.ring.rotation.z = t * 0.6; u.ring.material.opacity = 0.35 + 0.25 * Math.sin(t * 4); }
+  }
+}
+function slamFx(x, z, r) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const ring = new THREE.Mesh(ZG.ring, mat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.12; g.add(ring);
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1.1, 24, 1, true), mat); wall.position.y = 0.55; g.add(wall);
+  const disc = new THREE.Mesh(ZG.disc, new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); disc.rotation.x = -Math.PI / 2; disc.position.y = 0.1; g.add(disc);
+  addFx(g, 0.55, (f, k) => { const s = 0.5 + r * Math.min(1, (1 - k) * 1.6); ring.scale.setScalar(s); wall.scale.set(s, k, s); disc.scale.setScalar(s); mat.opacity = k; disc.material.opacity = k * 0.18; });
+  for (let i = 0; i < (isTouch ? 8 : 14); i++) { const a = i / 14 * Math.PI * 2; burst(x + Math.sin(a) * 2, 0.2, z + Math.cos(a) * 2, i % 2 ? 0x8a8f9a : 0xff8a2a, 1, 6, 0.14); }
+  const d = Math.hypot(me.x - x, me.z - z); G.shake = Math.max(G.shake, clamp(1.1 - d / 20, 0, 1) * 0.9);
+  if (d < 40) sfx.slam();
+}
+function igniteFx(x, z, r) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
+  const ring = new THREE.Mesh(ZG.ring, mat); ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.3, z);
+  addFx(ring, 0.4, (f, k) => { ring.scale.setScalar(r * (1.1 - k * 0.8)); mat.opacity = k; });
+  burst(x, 1, z, 0xff8a1a, isTouch ? 6 : 10, 7, 0.16);
+}
+
 // damage numbers (DOM)
 const dnums = [];
 function dmgNum(x, y, z, val, color = '#fff', big = false) {
@@ -439,6 +536,7 @@ function clearWorld() {
   for (const p of particles) scene.remove(p.m); particles.length = 0;
   for (const r of rockets) if (r.mesh) scene.remove(r.mesh); rockets.length = 0;
   if (G.portal) scene.remove(G.portal.mesh);
+  for (const z of G.zones.values()) scene.remove(z.mesh); G.zones.clear();
   G.enemies.clear(); G.eproj.clear(); G.pickups.clear(); G.portal = null; G.bossId = 0;
   for (const d of dnums) d.el.remove(); dnums.length = 0;
   show('bossbar', false);
@@ -481,8 +579,8 @@ function startFloor(m) {
   updateHudStatic();
 }
 function resetMe() {
-  me.hp = me.maxHp = 100; me.down = false; me.perks = {}; me.perkList = [];
-  me.guns = [makeGun('pistol', 0, 'none')]; me.cur = 0; vm.key = '';
+  me.hp = me.maxHp = CH().hp; me.down = false; me.perks = {}; me.perkList = [];
+  me.guns = [makeGun(CH().gun, 0, 'none')]; me.cur = 0; vm.key = '';
   me.fireCd = 0; me.reloadT = 0; me.dashT = 0; me.dashCd = 0; me.skillCd = 0; me.skillMax = 1; me.shieldT = 0; me.jumps = 0; me.shots = 0; me.regenT = 0; me.reviveP = 0; me.kbx = me.kbz = 0;
   me.angelUsed = false; me.pending = new Set();
   refreshViewModel();
@@ -490,27 +588,44 @@ function resetMe() {
 function myEntry() {
   let p = G.players.get(net.myId);
   if (!p) { p = { id: net.myId, name: NAME, slot: G.mySlot }; G.players.set(net.myId, p); }
+  p.char = CHAR;
   return p;
 }
+const pendingChars = new Map();
 function ensurePlayer(id, name, slot) {
   let p = G.players.get(id);
-  if (!p) { p = { id, name, slot, x: 0, y: 0, z: 0, yaw: 0, hp: 100, maxHp: 100, down: false, ready: false }; G.players.set(id, p); }
+  if (!p) { p = { id, name, slot, x: 0, y: 0, z: 0, yaw: 0, hp: 100, maxHp: 100, down: false, ready: false, char: pendingChars.get(id) || (id === net.myId ? CHAR : 'cinder') }; G.players.set(id, p); }
+  if (id === net.myId) p.char = CHAR;
+  const changed = p.mesh && (p.name !== name || p.slot !== slot);
   p.name = name; p.slot = slot;
-  if (id !== net.myId && !p.mesh) { p.mesh = makePlayerMesh(slot, name); p.mesh.visible = false; scene.add(p.mesh); }
+  if (changed) { scene.remove(p.mesh); p.mesh = null; }
+  if (id !== net.myId && !p.mesh) { p.mesh = makePlayerMesh(slot, name, p.char); p.mesh.visible = false; scene.add(p.mesh); }
   return p;
 }
+// another player announced / changed their character
+function setPlayerChar(id, c) {
+  c = charOf(c);
+  const p = G.players.get(id);
+  if (!p) { pendingChars.set(id, c); return; }
+  if (p.char === c && (p.mesh || id === net.myId)) return;
+  p.char = c;
+  if (id !== net.myId) { const vis = p.mesh ? p.mesh.visible : false; if (p.mesh) scene.remove(p.mesh); p.mesh = makePlayerMesh(p.slot, p.name, c); p.mesh.visible = vis; scene.add(p.mesh); }
+}
+function announceChar() { if (net.online) net.others({ t: 'hi', c: CHAR }); }
 function removePlayer(id) { const p = G.players.get(id); if (!p) return; if (p.mesh) scene.remove(p.mesh); G.players.delete(id); }
 
 // ---------------------------------------------------------------- message handling
-const HOST_TYPES = new Set(['hit', 'boom', 'pick', 'drop']);
+const HOST_TYPES = new Set(['hit', 'boom', 'pick', 'drop', 'zone', 'slam']);
 net.onMsg = (m, from) => {
   if (!m) return;
   if (HOST_TYPES.has(m.t)) { if (net.isHost && G.host && G.playing) G.host.onMsg(m, from); return; }
+  if (m.t === 'hi') { if (from !== net.myId) { setPlayerChar(from, m.c); if (!G.playing) showLobby(true); } return; }
   if (m.t !== 'start' && !G.level) return;
   switch (m.t) {
     case 'p': {
       if (from === net.myId) break;
       const p = G.players.get(from); if (!p) break;
+      if (m.c && m.c !== p.char) setPlayerChar(from, m.c);
       Object.assign(p, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, hp: m.hp, maxHp: m.mh, down: !!m.d, g: !!m.g, gun: m.gun, ready: true });
       if (p.rx === undefined) { p.rx = m.x; p.ry = m.y; p.rz = m.z; }
       break;
@@ -534,6 +649,7 @@ net.onMsg = (m, from) => {
     case 'fx': onFx(m, from); break;
     case 'hurt': if (m.to === net.myId) onHurt(m); break;
     case 'over': onOver(m); break;
+    case 'zone+': addZoneVis(m.z); break;
   }
 };
 net.onSys = (m) => {
@@ -541,9 +657,9 @@ net.onSys = (m) => {
     net.myId = m.id; net.hostId = m.hostId; net.code = m.code; G.mySlot = m.slot;
     for (const p of G.players.values()) if (p.mesh) scene.remove(p.mesh);
     G.players.clear(); syncRoster(m.players);
-    $('lobbyCode').textContent = m.code; showLobby();
+    $('lobbyCode').textContent = m.code; showLobby(); announceChar();
   } else if (m.t === 'peer+') {
-    syncRoster(m.players); showLobby(true);
+    syncRoster(m.players); showLobby(true); announceChar();
     if (G.playing) toast(`${m.name} joined`);
     if (net.isHost && G.playing && G.host && !G.over) G.host.syncTo(m.id);
   } else if (m.t === 'peer-') {
@@ -561,10 +677,12 @@ function syncRoster(list) {
 function showLobby(refreshOnly) {
   const ul = $('lobbyPlayers'); ul.innerHTML = '';
   for (const r of G.roster) {
-    const li = document.createElement('li'); li.innerHTML = `<span class="dot" style="background:${PLAYER_COLOR_CSS[r.slot]}"></span>${escapeHtml(r.name)}${r.id === net.hostId ? ' <em>(host)</em>' : ''}${r.id === net.myId ? ' <em>(you)</em>' : ''}`;
+    const pl = G.players.get(r.id), C = CHARACTERS[charOf(r.id === net.myId ? CHAR : pl && pl.char)];
+    const li = document.createElement('li'); li.innerHTML = `<span class="dot" style="background:${PLAYER_COLOR_CSS[r.slot]}"></span>${escapeHtml(r.name)}${r.id === net.hostId ? ' <em>(host)</em>' : ''}${r.id === net.myId ? ' <em>(you)</em>' : ''}<span class="lchar" style="color:${C.css}">${C.icon} ${C.name}</span>`;
     ul.appendChild(li);
   }
   $('lobbyCount').textContent = `${G.roster.length} / 4 players`;
+  renderCharPicker('lobbyChars', true);
   $('startBtn').style.display = net.isHost ? '' : 'none';
   $('lobbyWait').style.display = net.isHost ? 'none' : '';
   if (!refreshOnly && !G.playing) screenOnly('lobby');
@@ -631,6 +749,9 @@ function onFx(m, from) {
   else if (m.k === 'chain') chainFx(m.a, m.b);
   else if (m.k === 'wave') shockwaveFx(m.x, m.z);
   else if (m.k === 'spawn') spawnFx(m.x, m.z, m.d, m.big);
+  else if (m.k === 'slam') { if (m.src !== net.myId) slamFx(m.x, m.z, m.r); }
+  else if (m.k === 'ignite') igniteFx(m.x, m.z, m.r);
+  else if (m.k === 'block') { burst(m.x, m.y, m.z, 0xbfeaff, 5, 4, 0.12); if (Math.hypot(me.x - m.x, me.z - m.z) < 25) sfx.shock(); }
 }
 let vignT = 0, hurtDirT = 0;
 function onHurt(m) {
@@ -639,6 +760,7 @@ function onHurt(m) {
   let a = m.a; if (me.shieldT > 0) a *= 0.2;
   a = Math.max(1, Math.round(a));
   me.hp -= a; sfx.hurt(); G.shake = Math.max(G.shake, 0.35);
+  if (CHAR === 'anvil' && me.skillCd > 0) me.skillCd = Math.max(0, me.skillCd - a * 0.06); // Iron Hide: damage charges Ground Slam
   $('vignette').style.opacity = 0.75; vignT = 0.35;
   const ang = Math.atan2(m.x - me.x, m.z - me.z);
   const fwdAng = Math.atan2(-Math.sin(me.yaw), -Math.cos(me.yaw));
@@ -658,7 +780,7 @@ function onOver(m) {
   $('endTitle').className = m.win ? 'win' : 'lose';
   const mm = Math.floor(m.time / 60), ss = String(m.time % 60).padStart(2, '0');
   let html = `<div>${m.win ? 'Cleared' : 'Reached'} floor <b>${m.floor}</b> of ${FLOORS} · Time <b>${mm}:${ss}</b></div><table>`;
-  for (const p of G.players.values()) html += `<tr><td style="color:${PLAYER_COLOR_CSS[p.slot || 0]}">${escapeHtml(p.name || NAME)}</td><td>${(m.kills && m.kills[p.id]) || 0} kills</td></tr>`;
+  for (const p of G.players.values()) html += `<tr><td style="color:${PLAYER_COLOR_CSS[p.slot || 0]}">${CHARACTERS[charOf(p.char)].icon} ${escapeHtml(p.name || NAME)}</td><td>${(m.kills && m.kills[p.id]) || 0} kills</td></tr>`;
   html += `</table><div class="perkline">${me.perkList.map(id => PERKS.find(p => p.id === id).icon).join(' ')}</div>`;
   $('endStats').innerHTML = html;
   $('againBtn').style.display = net.isHost ? '' : 'none';
@@ -696,7 +818,7 @@ function makePortal(x, z) {
 let perkChoices = [];
 function openPerks() {
   const single = new Set(['angel', 'djump', 'emberdash']);
-  const pool = PERKS.filter(p => !(single.has(p.id) && me.perks[p.id]));
+  const pool = PERKS.filter(p => !(single.has(p.id) && me.perks[p.id]) && (!p.char || (p.char === CHAR && !me.perks[p.id])));
   perkChoices = [];
   while (perkChoices.length < 3 && pool.length) perkChoices.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   const box = $('perkCards'); box.innerHTML = '';
@@ -815,17 +937,37 @@ function shoot(g) {
 let hmT = 0;
 function hitmark(kill, crit) { const h = $('hitmark'); h.className = kill ? 'kill' : crit ? 'crit' : ''; h.style.opacity = 1; hmT = kill ? 0.3 : 0.12; }
 
+function skillCooldown() { return CH().cd * Math.pow(0.65, perkN('cool')); }
 function useSkill() {
-  if (me.skillCd > 0 || me.down) return;
-  const cd = (SKILL === 'grenade' ? 8 : 12) * Math.pow(0.65, perkN('cool'));
+  if (me.skillCd > 0 || me.down || G.perkOpen) return;
+  const cd = skillCooldown();
   me.skillCd = cd; me.skillMax = cd; sfx.skill();
-  if (SKILL === 'grenade') {
-    const fwd = camForward(new THREE.Vector3());
+  const dmgMul = 1 + 0.2 * perkN('dmg');
+  const fwd = camForward(new THREE.Vector3());
+  const fl = Math.hypot(fwd.x, fwd.z) || 1, fx2 = fwd.x / fl, fz2 = fwd.z / fl;
+  if (CHAR === 'cinder') { // Magma Grenade: explodes, then leaves a burning pool
     const v = fwd.clone().multiplyScalar(17); v.y += 4;
     const o = { x: me.x + fwd.x * 0.4, y: me.y + 1.5, z: me.z + fwd.z * 0.4 };
-    spawnRocket({ ...o, vx: v.x, vy: v.y, vz: v.z, grav: 20, life: 1.4, dmg: 75 * (1 + 0.2 * perkN('dmg')), r: 5, el: 'fire', color: 0xff5020, hitEnemies: true });
+    const pyre = perkN('pyre') ? 1 : 0;
+    spawnRocket({ ...o, vx: v.x, vy: v.y, vz: v.z, grav: 20, life: 1.4, dmg: 75 * dmgMul, r: 5, el: 'fire', color: 0xff5020, hitEnemies: true,
+      zone: { kind: 'fire', r: 3.2 * (pyre ? 1.3 : 1), dur: 4 * (pyre ? 1.5 : 1), dmg: Math.round((10 + 4 * (G.floor - 1)) * dmgMul) } });
     net.others({ t: 'fx', k: 'rk', a: [R2(o.x), R2(o.y), R2(o.z)], v: [R2(v.x), R2(v.y), R2(v.z)], g: 20, l: 1.4, c: 0xff5020 });
-  } else { me.shieldT = 4; sfx.shield(); toast('Barrier up! (-80% damage)', 1.2); }
+  } else if (CHAR === 'frost') { // Ice Barrier: wall across your line of sight, 3m ahead
+    let d = 3; // pull it closer if a wall is in the way
+    while (d > 1 && pointInSolid(G.level, me.x + fx2 * d, 1, me.z + fz2 * d)) d -= 0.5;
+    const pf = perkN('permafrost') ? 1 : 0;
+    net.toHost({ t: 'zone', kind: 'wall', x: R2(me.x + fx2 * d), z: R2(me.z + fz2 * d), yaw: R2(me.yaw), len: 6 * (pf ? 1.4 : 1), dur: 6 * (pf ? 1.5 : 1) });
+    sfx.shield();
+  } else if (CHAR === 'anvil') { // Ground Slam around you
+    const q = perkN('quake') ? 1 : 0;
+    const r = 7 * (q ? 1.3 : 1);
+    net.toHost({ t: 'slam', x: R2(me.x), z: R2(me.z), r, stun: q ? 2.4 : 1.6, dmg: Math.round(35 * dmgMul) });
+    slamFx(me.x, me.z, r);
+  } else { // Warm Hearth: campfire at your feet (slightly ahead)
+    const k = perkN('kindred') ? 1 : 0;
+    let d = 1.2; if (pointInSolid(G.level, me.x + fx2 * d, 0.5, me.z + fz2 * d)) d = 0;
+    net.toHost({ t: 'zone', kind: 'hearth', x: R2(me.x + fx2 * d), z: R2(me.z + fz2 * d), r: 4.5, dur: k ? 8 : 6, heal: k ? 12 : 8 });
+  }
 }
 
 let sendAcc = 0;
@@ -838,13 +980,20 @@ function updateMe(dt) {
   // timers
   me.dashCd -= dt; me.skillCd = Math.max(0, me.skillCd - dt); me.shieldT -= dt;
   if (perkN('regen') && !me.down) { me.regenT += dt; if (me.regenT >= 1.5 / perkN('regen')) { me.regenT = 0; heal(1); } }
+  // Warm Hearth heals anyone standing near it (each client heals itself)
+  me.nearHearth = false;
+  if (!me.down) for (const z of G.zones.values()) if (z.kind === 'hearth' && Math.hypot(me.x - z.x, me.z - z.z) < z.r) {
+    me.nearHearth = true; z.healAcc += z.heal * dt;
+    if (z.healAcc >= 1) { const n = Math.floor(z.healAcc); z.healAcc -= n; if (me.hp < me.maxHp) { heal(n); me.healShown = (me.healShown || 0) + n; } }
+    if (me.healShown >= 8) { dmgNum(me.x - Math.sin(me.yaw) * 1.5, me.y + 1.1, me.z - Math.cos(me.yaw) * 1.5, '+' + me.healShown, '#5cff8a'); me.healShown = 0; }
+  }
   // movement input
   let mx = input.mx, mz = input.mz;
   if (!isTouch) { mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0); mz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0); const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; } }
   if (me.down) { mx = mz = 0; }
   const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
   const wx = -sy * mz + cy * mx, wz = -cy * mz - sy * mx;
-  const speed = 7 * (1 + 0.15 * perkN('speed')) * (input.aim ? 0.65 : 1);
+  const speed = 7 * CH().speed * (1 + 0.15 * perkN('speed')) * (input.aim ? 0.65 : 1);
   if (input.dash && me.dashCd <= 0 && !me.down) {
     let dx = wx, dz = wz; if (Math.hypot(dx, dz) < 0.1) { dx = -sy; dz = -cy; }
     const l = Math.hypot(dx, dz); me.dashDx = dx / l; me.dashDz = dz / l; me.dashT = 0.17; me.dashCd = 1.0; sfx.dash();
@@ -889,24 +1038,24 @@ function updateMe(dt) {
   if (near && input.use) { const id = near.id; me.pending.add(id); net.toHost({ t: 'pick', id }); setTimeout(() => me.pending.delete(id), 1500); }
   // being revived (the downed client decides)
   if (me.down && G.mode === 'coop') {
-    let helper = null;
-    for (const p of G.players.values()) if (p.id !== net.myId && p.ready && !p.down && Math.hypot(p.x - me.x, p.z - me.z) < 2.6) helper = p;
-    me.reviveP = helper ? me.reviveP + dt / 3 : Math.max(0, me.reviveP - dt * 0.3);
+    let helper = null, rate = 0;
+    for (const p of G.players.values()) if (p.id !== net.myId && p.ready && !p.down && Math.hypot(p.x - me.x, p.z - me.z) < 2.6) { const r = charOf(p.char) === 'ember' ? 2 : 1; if (r > rate) { rate = r; helper = p; } }
+    me.reviveP = helper ? me.reviveP + dt * rate / 3 : Math.max(0, me.reviveP - dt * 0.3);
     if (me.reviveP >= 1) { me.down = false; me.hp = Math.round(me.maxHp * 0.4); me.reviveP = 0; sfx.revive(); toast(`Revived by ${helper.name}!`, 2); }
   }
   // reviving others (display only)
   G.revivingName = null;
   for (const p of G.players.values()) {
     if (p.id === net.myId) continue;
-    if (!me.down && p.down && p.ready && Math.hypot(p.x - me.x, p.z - me.z) < 2.6) { p.revP = (p.revP || 0) + dt / 3; G.revivingName = p.name; G.revivingP = Math.min(1, p.revP); }
+    if (!me.down && p.down && p.ready && Math.hypot(p.x - me.x, p.z - me.z) < 2.6) { p.revP = (p.revP || 0) + dt * (CHAR === 'ember' ? 2 : 1) / 3; G.revivingName = p.name; G.revivingP = Math.min(1, p.revP); }
     else if (!p.down) p.revP = 0;
   }
   // own entry + network
-  Object.assign(myEntry(), { x: me.x, y: me.y, z: me.z, yaw: me.yaw, hp: me.hp, maxHp: me.maxHp, down: me.down, g: me.grounded, ready: true, name: NAME, slot: G.mySlot });
+  Object.assign(myEntry(), { x: me.x, y: me.y, z: me.z, yaw: me.yaw, hp: me.hp, maxHp: me.maxHp, down: me.down, g: me.grounded, ready: true, name: NAME, slot: G.mySlot, char: CHAR });
   sendAcc += dt;
   if (net.online && sendAcc > 0.05) {
     sendAcc = 0;
-    net.others({ t: 'p', x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), hp: Math.round(me.hp), mh: me.maxHp, d: me.down ? 1 : 0, g: me.grounded ? 1 : 0, gun: cg.type });
+    net.others({ t: 'p', x: R2(me.x), y: R2(me.y), z: R2(me.z), yaw: R2(me.yaw), hp: Math.round(me.hp), mh: me.maxHp, d: me.down ? 1 : 0, g: me.grounded ? 1 : 0, gun: cg.type, c: CHAR });
   }
 }
 
@@ -923,6 +1072,7 @@ function updateRockets(dt) {
       if (r.visualOnly) continue;
       const y = Math.max(0.3, r.y);
       net.toHost({ t: 'boom', x: R2(r.x), y: R2(y), z: R2(r.z), r: r.r, dmg: Math.round(r.dmg), el: r.el });
+      if (r.zone) { let zx = r.x, zz = r.z; if (pointInSolid(G.level, zx, 0.5, zz)) { zx -= r.vx * 0.04; zz -= r.vz * 0.04; } net.toHost({ t: 'zone', ...r.zone, x: R2(zx), z: R2(zz) }); }
       explosionFx(r.x, y, r.z, r.r * 0.8, r.color);
     }
   }
@@ -936,10 +1086,11 @@ function updateWorldVisuals(dt, t) {
     let dy = e.yaw - e.ryaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2; e.ryaw += dy * lerpK;
     const m = e.mesh, u = m.userData;
     m.position.set(e.rx, e.ry, e.rz); u.body.rotation.y = e.ryaw;
-    const f = e.f || 0, flag = f % 10, hit = (f % 100) >= 10, burn = f >= 100;
+    const f = e.f || 0, fr = f % 1000, flag = fr % 10, hit = (fr % 100) >= 10, burn = fr >= 100, st = Math.floor(f / 1000), slow = st & 1, stun = st & 2;
     if (flag === 9) u.body.scale.setScalar(Math.max(0.2, 0.3 + 0.7 * ((t * 2) % 1)));
     else u.body.scale.setScalar(1);
-    u.mat.emissive.setHex(hit ? 0xffffff : burn ? (Math.sin(t * 20) > 0 ? 0x802000 : 0x401000) : flag && e.type === 'brute' ? 0x600010 : 0x000000);
+    u.mat.emissive.setHex(hit ? 0xffffff : burn ? (Math.sin(t * 20) > 0 ? 0x802000 : 0x401000) : stun ? (Math.sin(t * 16) > 0 ? 0x505000 : 0x202000) : slow ? 0x2a5a80 : flag && e.type === 'brute' ? 0x600010 : 0x000000);
+    u.body.rotation.z = stun && e.type !== 'golem' ? Math.sin(t * 14 + e.id) * 0.18 : 0;
     if (e.type === 'archer') u.orb.visible = flag === 1;
     if (e.type === 'bomber') { u.orb.visible = flag !== 1 || Math.sin(t * 40) > 0; u.orb.scale.setScalar(flag === 1 ? 1.4 : 0.7); u.body.position.y = Math.abs(Math.sin(t * 14 + e.id)) * 0.2; }
     if (e.type === 'grunt' && u.arm) u.arm.rotation.x = flag === 1 ? -1.0 : Math.sin(t * 8 + e.id) * 0.3;
@@ -1034,10 +1185,11 @@ function updateHud(dt) {
   setText('hpText', `${Math.max(0, Math.ceil(me.hp))} / ${me.maxHp}`);
   $('hpbox').classList.toggle('shield', me.shieldT > 0);
   const cdFrac = me.skillCd > 0 ? me.skillCd / (me.skillMax || 1) : 0;
-  setText('skillLabel', SKILL === 'grenade' ? '💣' : '🛡️');
+  setText('skillLabel', CH().icon);
   $('skillCd').style.setProperty('--cd', (cdFrac * 100) + '%');
   setText('skillTime', me.skillCd > 0 ? Math.ceil(me.skillCd) + 's' : (isTouch ? 'ready' : 'Q'));
-  if (isTouch) { $('btnSkill').style.setProperty('--cd', (cdFrac * 100) + '%'); $('btnDash').style.opacity = me.dashCd > 0 ? 0.45 : 1; }
+  if (isTouch) { $('btnSkill').style.setProperty('--cd', (cdFrac * 100) + '%'); $('btnDash').style.opacity = me.dashCd > 0 ? 0.45 : 1; setHTML('btnSkill', `<span class="sic">${CH().icon}</span><span class="scd">${me.skillCd > 0 ? Math.ceil(me.skillCd) + 's' : 'SKILL'}</span>`); $('btnSkill').classList.toggle('ready', me.skillCd <= 0); }
+  $('skillCd').classList.toggle('ready', me.skillCd <= 0);
   const g = me.guns[me.cur];
   setHTML('ammo', me.reloadT > 0 ? '<span class="rl">Reloading…</span>' : `<b class="${g.ammo === 0 ? 'empty' : ''}">${g.ammo}</b><span>/ ${g.reserve === Infinity ? '∞' : g.reserve}</span>`);
   setHTML('gunSlots', me.guns.map((gg, i) => `<div class="slot ${i === me.cur ? 'cur' : ''}" style="border-color:${RARITIES[gg.rarity].color}"><span class="k">${i + 1}</span><span style="color:${RARITIES[gg.rarity].color}">${gg.name}</span>${gg.el !== 'none' ? `<i>${gg.el === 'fire' ? '🔥' : '❄️'}</i>` : ''}<small>${gg.dmg}${gg.pellets > 1 ? '×' + gg.pellets : ''} dmg</small></div>`).join(''));
@@ -1055,7 +1207,7 @@ function updateHud(dt) {
     for (const p of G.players.values()) {
       if (p.id === net.myId) continue;
       const pct = p.ready ? Math.max(0, (p.hp || 0) / (p.maxHp || 100) * 100) : 0;
-      html += `<div class="mate"><span class="dot" style="background:${PLAYER_COLOR_CSS[p.slot || 0]}"></span><span class="nm">${escapeHtml(p.name)}</span>${p.down ? '<b class="dn2">DOWN</b>' : `<span class="mbar"><span style="width:${pct.toFixed(0)}%"></span></span>`}</div>`;
+      html += `<div class="mate"><span class="dot" style="background:${PLAYER_COLOR_CSS[p.slot || 0]}"></span><span title="${CHARACTERS[charOf(p.char)].name}">${CHARACTERS[charOf(p.char)].icon}</span><span class="nm">${escapeHtml(p.name)}</span>${p.down ? '<b class="dn2">DOWN</b>' : `<span class="mbar"><span style="width:${pct.toFixed(0)}%"></span></span>`}</div>`;
     }
     setHTML('team', html);
   } else setHTML('team', '');
@@ -1097,6 +1249,7 @@ function frame(now) {
         if (net.online && G.lastSnapSend >= 0.05) { G.lastSnapSend = 0; net.others(snap); }
       }
       updateWorldVisuals(dt, t);
+      updateZones(G.paused ? 0 : dt, t);
       updateWeather(dt, t);
       updateCamera(dt);
       updateHud(dt);
@@ -1125,7 +1278,26 @@ addMenuBg();
 $('nameInput').value = NAME;
 function readName() { NAME = $('nameInput').value.replace(/[^\w \-]/g, '').trim().slice(0, 14) || NAME; $('nameInput').value = NAME; localStorage.setItem('ember_name', NAME); }
 $('nameInput').addEventListener('change', readName);
-for (const r of document.querySelectorAll('input[name=skill]')) { r.checked = r.value === SKILL; r.addEventListener('change', () => { SKILL = r.value; localStorage.setItem('ember_skill', SKILL); }); }
+// ---- character select (menu + co-op lobby)
+function selectChar(c) {
+  CHAR = charOf(c); localStorage.setItem('ember_char', CHAR);
+  const p = G.players.get(net.myId); if (p) p.char = CHAR;
+  renderCharPicker('charSelect', false); if (!$('lobby').classList.contains('hidden')) { renderCharPicker('lobbyChars', true); showLobby(true); }
+  announceChar();
+}
+function renderCharPicker(id, compact) {
+  const box = $(id); if (!box) return;
+  box.innerHTML = CHAR_IDS.map(k => { const C = CHARACTERS[k]; return `<button class="ccard${k === CHAR ? ' sel' : ''}" data-char="${k}" style="--cc:${C.css}"><span class="cicon">${C.icon}</span><span class="cname">${C.name}</span><span class="crole">${C.role}</span></button>`; }).join('');
+  for (const b of box.querySelectorAll('.ccard')) b.addEventListener('click', () => selectChar(b.dataset.char));
+  const info = $(id + 'Info'); if (!info) return;
+  const C = CH();
+  info.style.setProperty('--cc', C.css);
+  info.innerHTML = `<div class="cihead"><b>${C.icon} ${C.name}</b> <span>${C.role} · ${C.tag}</span></div>
+    <div class="ciline"><kbd>${isTouch ? 'SKILL' : 'Q'}</kbd> <b>${C.skill}</b> <small>(${C.cd}s)</small> — ${C.skillDesc}</div>
+    <div class="ciline"><kbd>Passive</kbd> <b>${C.passive}</b> — ${C.passiveDesc}</div>
+    <div class="cistats">Starts with ${GUN_TYPES[C.gun].name} · ${C.hp} HP${C.speed !== 1 ? ` · ${Math.round((C.speed - 1) * 100)}% speed` : ''}</div>`;
+}
+renderCharPicker('charSelect', false);
 $('sensInput').value = SENS; $('sensInput').addEventListener('input', () => { SENS = parseFloat($('sensInput').value); localStorage.setItem('ember_sens', SENS); });
 $('soloBtn').addEventListener('click', () => {
   initAudio(); readName(); net.close(); G.mode = 'solo';

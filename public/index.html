@@ -44,21 +44,20 @@
   <button class="tbtn" id="btnAim">AIM</button>
   <button class="tbtn" id="btnJump">JUMP</button>
   <button class="tbtn" id="btnDash">DASH</button>
-  <button class="tbtn" id="btnSkill">SKILL</button>
+  <button class="tbtn" id="btnSkill"><span class="sic">💣</span><span class="scd">SKILL</span></button>
   <button class="tbtn" id="btnReload">R</button>
   <button class="tbtn" id="btnSwap">⇄</button>
   <button class="tbtn" id="btnUse" style="display:none">USE</button>
 </div>
 
 <div id="menu" class="screen">
-  <div class="panel">
+  <div class="panel menuPanel">
     <h1>EMBER <span>RUN</span><small class="subtitle">❄ Frozen Forge 🔥</small></h1>
     <p class="sub">Storm an icy mountain fortress where old forges melt through the snow. Clear the ice halls, push into the molten forge, topple the Forge Golem.</p>
     <label class="row">Name <input id="nameInput" maxlength="14" autocomplete="off"></label>
-    <div class="row skills">Skill
-      <label><input type="radio" name="skill" value="grenade" checked> 💣 Magma grenade</label>
-      <label><input type="radio" name="skill" value="shield"> 🛡️ Ice barrier</label>
-    </div>
+    <div class="charTitle">Choose your character</div>
+    <div id="charSelect" class="charPick"></div>
+    <div id="charSelectInfo" class="charInfo"></div>
     <label class="row">Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
     <div class="btns">
       <button id="soloBtn" class="big">▶ Solo</button>
@@ -68,9 +67,9 @@
     <div id="menuErr"></div>
     <div class="btns small"><button class="fsBtn">⛶ Fullscreen</button><button id="muteBtn">🔊 Sound on</button></div>
     <details class="help"><summary>How to play</summary>
-      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q skill · R reload · 1/2 or wheel swap guns · E pick up / open · M mute · Esc pause.</p>
+      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q character skill · R reload · 1/2 or wheel swap guns · E pick up / open · M mute · Esc pause.</p>
       <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Play in landscape.</p>
-      <p>Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Defeat the Forge Golem at the end of each floor and step into the portal. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
+      <p>Pick a character: each has its own starting gun, a Q skill and an always-on passive. Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Defeat the Forge Golem at the end of each floor and step into the portal. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
     </details>
   </div>
 </div>
@@ -84,6 +83,8 @@
     <div id="lobbyWait2" class="note"></div>
     <div id="lobbyCount"></div>
     <ul id="lobbyPlayers"></ul>
+    <div class="charTitle">Your character <small>(doubles allowed)</small></div>
+    <div id="lobbyChars" class="charPick mini"></div>
     <button id="startBtn" class="big">▶ Start run</button>
     <div id="lobbyWait" class="note">Waiting for the host to start…</div>
     <button id="leaveLobbyBtn">Leave</button>

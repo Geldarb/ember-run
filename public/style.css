@@ -23,7 +23,6 @@ h2 { margin: 6px 0 12px; }
 .sub { opacity: 0.8; margin: 4px 0 12px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; text-align: left; }
 .row input[type=text], .row input:not([type]) { flex: 1; padding: 7px 10px; border-radius: 8px; border: 2px solid #4f88b8; background: #0e1c2c; color: #fff; }
-.skills label { font-size: 0.95em; white-space: nowrap; }
 .btns { display: flex; gap: 10px; justify-content: center; margin: 12px 0 8px; flex-wrap: wrap; }
 .btns button { flex: 1; min-width: 140px; }
 .btns.small button { flex: 0 1 auto; min-width: 0; font-size: 0.9em; }
@@ -136,4 +135,31 @@ body.touch h1 { font-size: 1.9em; }
 @media (max-height: 420px) {
   .panel { padding: 10px 14px; } h1 { font-size: 1.7em; } .help { display: none; } .row { margin: 4px 0; } .btns { margin: 6px 0; }
   .card { padding: 8px; } .card .icon { font-size: 1.6em; }
+}
+
+/* character select */
+.menuPanel { width: min(640px, 96vw); }
+.charTitle { margin: 10px 0 6px; font-weight: 700; color: #ffd08a; letter-spacing: 1px; }
+.charTitle small { color: #cfeeff; font-weight: 400; opacity: 0.75; }
+.charPick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ccard { --cc: #fff; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border: 2px solid color-mix(in srgb, var(--cc) 45%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--cc) 22%, #10202f), #0e1a28); border-radius: 12px; transition: transform 0.1s; }
+.ccard:hover { transform: translateY(-2px); background: linear-gradient(180deg, color-mix(in srgb, var(--cc) 32%, #10202f), #0e1a28); }
+.ccard.sel { border-color: var(--cc); box-shadow: 0 0 0 2px var(--cc), 0 0 18px color-mix(in srgb, var(--cc) 60%, transparent); }
+.ccard .cicon { font-size: 1.9em; line-height: 1.1; }
+.ccard .cname { font-weight: 800; color: var(--cc); }
+.ccard .crole { font-size: 0.75em; opacity: 0.8; }
+.charPick.mini .ccard { flex-direction: row; justify-content: center; padding: 5px 4px; gap: 5px; }
+.charPick.mini .cicon { font-size: 1.2em; } .charPick.mini .crole { display: none; }
+.charInfo { --cc: #fff; margin: 8px 0 4px; padding: 8px 12px; text-align: left; border-left: 4px solid var(--cc); background: rgba(0,0,0,0.35); border-radius: 8px; font-size: 0.88em; }
+.charInfo .cihead b { color: var(--cc); font-size: 1.1em; } .charInfo .cihead span { opacity: 0.75; }
+.charInfo .ciline { margin-top: 4px; }
+.charInfo kbd { display: inline-block; min-width: 22px; padding: 0 5px; border: 1px solid #fff6; border-radius: 4px; background: #0e1c2c; font: inherit; font-size: 0.8em; font-weight: 700; text-align: center; }
+.charInfo .cistats { margin-top: 4px; opacity: 0.75; font-size: 0.92em; }
+.lchar { float: right; font-weight: 700; font-size: 0.9em; }
+#skillCd.ready { box-shadow: 0 0 12px #ffb066; }
+#btnSkill { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+#btnSkill .sic { font-size: 22px; } #btnSkill .scd { font-size: 10px; margin-top: 2px; }
+#btnSkill.ready { border-color: #ffd08a; box-shadow: 0 0 10px rgba(255,170,90,0.7); }
+@media (max-height: 420px) {
+  .charTitle { margin: 4px 0; } .ccard { padding: 4px 2px; } .ccard .cicon { font-size: 1.4em; } .charInfo { margin: 4px 0; padding: 5px 10px; font-size: 0.8em; } .menuPanel .sub { display: none; }
 }

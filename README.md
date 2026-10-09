@@ -11,6 +11,18 @@ An original low-poly co-op roguelite FPS that runs in the browser. Clear rooms o
 - **Desktop:** WASD move · mouse look · left click shoot · right click aim · Space jump · Shift dash · Q skill · R reload · 1/2 or wheel swap guns · E pick up/open · M mute · Esc pause.
 - **Mobile:** play in landscape. Use the left stick to move and drag on the right to look. There are buttons for FIRE / AIM / JUMP / DASH / SKILL / R / ⇄.
 
+## Characters
+Pick one on the main menu (or in the co-op lobby; each player picks their own, doubles allowed). Each has a starting gun, a Q / SKILL ability and a passive.
+
+| Character | Start gun | Skill (Q) | Passive |
+|---|---|---|---|
+| 💣 Cinder, fire gunner | Rivet Pistol | Magma Grenade (8s): explosion + burning pool for 4s | Wildfire: kills have a 15% chance to ignite nearby enemies |
+| 🧊 Frost, ice warden | Forge Rifle | Ice Barrier (12s): 6s wall that blocks enemy shots and slows enemies touching it | Frostbite: every hit slows the enemy 25% |
+| 🔨 Anvil, forge tank | Scattergun | Ground Slam (9s): damage, knockback and stun around you | Iron Hide: 140 HP, 10% slower, taking damage shortens the skill cooldown |
+| 🏕️ Ember, medic | Rivet Pistol | Warm Hearth (16s): 6s campfire that heals everyone nearby | Second Wind: revives teammates 2x faster |
+
+Each character also has one character-only perk in the perk pool (Lingering Pyre, Permafrost, Aftershock, Kindred Flame).
+
 Each floor is a chain of rooms. The doors seal when you walk in. Clear every wave, then pick 1 of 3 perks. Follow the light beam to the next room. Beat the golem and step into the portal. In co-op, stand next to a downed friend for 3 seconds to revive them.
 
 ## Run the server locally
@@ -33,4 +45,4 @@ URL flags: `?server=wss://host` (co-op server; invite links carry it along), `?j
 - `public/js/host.js`: host-authoritative sim (rooms, waves, enemy AI, boss, pickups).
 - `public/js/main.js`: rendering, input (desktop + touch), player, weapons, HUD, FX.
 - `public/js/level.js`, `data.js`, `audio.js`: level generation, game data, procedural sound.
-- `tests/`: puppeteer/ws smoke tests (`node tests/solo.js <url>/`, `node tests/ws.js <url>`).
+- `tests/`: puppeteer/ws smoke tests (`node tests/solo.js <url>/`, `node tests/ws.js <url>`, `node tests/chars_solo.js <url>/ <cinder|frost|anvil|ember>`, `node tests/chars_coop.js <url>/`, `node tests/chars_mobile.js <url>/`).

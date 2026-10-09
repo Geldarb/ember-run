@@ -81,7 +81,46 @@ export const PERKS = [
   { id: 'crit', icon: '👁️', name: 'Keen Eye', desc: '+12% critical hit chance' },
   { id: 'djump', icon: '🪽', name: 'Double Jump', desc: 'Jump again in mid-air' },
   { id: 'scav', icon: '🧲', name: 'Scavenger', desc: 'Ammo pickups give +60% and pull from further away' },
+  // character-specific perks (only offered to that character)
+  { id: 'pyre', char: 'cinder', icon: '🌋', name: 'Lingering Pyre', desc: 'Magma pools are 30% wider and burn 50% longer' },
+  { id: 'permafrost', char: 'frost', icon: '🧊', name: 'Permafrost', desc: 'Ice Barrier is 40% wider and lasts 50% longer' },
+  { id: 'quake', char: 'anvil', icon: '🌐', name: 'Aftershock', desc: 'Ground Slam hits 30% wider and stuns longer' },
+  { id: 'kindred', char: 'ember', icon: '💞', name: 'Kindred Flame', desc: 'Warm Hearth heals 50% more and lasts longer' },
 ];
+
+// Playable characters: Q skill + always-on passive
+export const CHARACTERS = {
+  cinder: {
+    name: 'Cinder', role: 'Fire gunner', icon: '💣', color: 0xff5a1f, accent: 0xffc040, css: '#ff6a2a',
+    gun: 'pistol', hp: 100, speed: 1.0, cd: 8,
+    skill: 'Magma Grenade', skillDesc: 'Lob a grenade that explodes and leaves a burning pool for 4s.',
+    passive: 'Wildfire', passiveDesc: 'Kills have a 15% chance to ignite nearby enemies.',
+    tag: 'All-rounder',
+  },
+  frost: {
+    name: 'Frost', role: 'Ice warden', icon: '🧊', color: 0x7fd8ff, accent: 0xe8fbff, css: '#7fd8ff',
+    gun: 'rifle', hp: 100, speed: 1.0, cd: 12,
+    skill: 'Ice Barrier', skillDesc: 'Raise an ice wall for 6s that blocks enemy shots and slows enemies touching it.',
+    passive: 'Frostbite', passiveDesc: 'Every hit slows the enemy by 25% for a moment.',
+    tag: 'Defensive',
+  },
+  anvil: {
+    name: 'Anvil', role: 'Forge tank', icon: '🔨', color: 0x6b6f7a, accent: 0xff8a2a, css: '#c0c6d4',
+    gun: 'shotgun', hp: 140, speed: 0.9, cd: 9,
+    skill: 'Ground Slam', skillDesc: 'Slam the ground: damage, knock back and stun nearby enemies.',
+    passive: 'Iron Hide', passiveDesc: '+40% max health, 10% slower. Taking damage charges your skill faster.',
+    tag: 'Tank',
+  },
+  ember: {
+    name: 'Ember', role: 'Medic', icon: '🏕️', color: 0xffd27a, accent: 0x5cff8a, css: '#ffd27a',
+    gun: 'pistol', hp: 100, speed: 1.0, cd: 16,
+    skill: 'Warm Hearth', skillDesc: 'Place a campfire for 6s that heals you and every teammate near it.',
+    passive: 'Second Wind', passiveDesc: 'Revives teammates twice as fast.',
+    tag: 'Support',
+  },
+};
+export const CHAR_IDS = Object.keys(CHARACTERS);
+export function charOf(id) { return CHARACTERS[id] ? id : 'cinder'; }
 
 export const ENEMY_TYPES = ['grunt', 'archer', 'brute', 'bomber', 'golem'];
 export const ENEMIES = {
