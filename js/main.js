@@ -17,8 +17,8 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.autoClear = false;
 $('game').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x150f22);
-scene.fog = new THREE.Fog(0x150f22, 25, 90);
+scene.background = new THREE.Color(0xa9c6df);
+scene.fog = new THREE.Fog(0xb4cde2, 18, 78);
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 160);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
@@ -58,6 +58,54 @@ function basic(color, opts = {}) {
 }
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const SPH = new THREE.IcosahedronGeometry(1, 1);
+const SHARD = new THREE.OctahedronGeometry(1, 0).scale(0.8, 1.6, 0.8);
+
+// ---------------------------------------------------------------- Frozen Forge theme + weather
+// Snow (floor 1) / embers (floor 2): one THREE.Points cloud that wraps around the camera. Cheap on phones.
+const WX_N = isTouch ? 220 : 450, WX_W = 44, WX_H = 16;
+const wxGeo = new THREE.BufferGeometry();
+const wxPos = new Float32Array(WX_N * 3), wxVel = new Float32Array(WX_N * 3);
+wxGeo.setAttribute('position', new THREE.BufferAttribute(wxPos, 3));
+function dotTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(8, 8, 0, 8, 8, 8); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 16, 16); return new THREE.CanvasTexture(c);
+}
+const wxMat = new THREE.PointsMaterial({ size: 0.16, map: dotTex(), transparent: true, depthWrite: false, color: 0xffffff, fog: true });
+const weather = new THREE.Points(wxGeo, wxMat); weather.frustumCulled = false; weather.visible = false; scene.add(weather);
+let wxMode = 'snow';
+function setWeather(mode) {
+  wxMode = mode; weather.visible = !!mode;
+  const embers = mode === 'embers';
+  wxMat.color.setHex(embers ? 0xff8a2a : 0xffffff); wxMat.size = embers ? 0.13 : 0.17;
+  wxMat.blending = embers ? THREE.AdditiveBlending : THREE.NormalBlending; wxMat.needsUpdate = true;
+  const cx = camera.position.x, cz = camera.position.z;
+  for (let i = 0; i < WX_N; i++) {
+    wxPos[i * 3] = cx + (Math.random() - 0.5) * WX_W; wxPos[i * 3 + 1] = Math.random() * WX_H; wxPos[i * 3 + 2] = cz + (Math.random() - 0.5) * WX_W;
+    wxVel[i * 3] = (Math.random() - 0.5) * (embers ? 0.8 : 0.6); wxVel[i * 3 + 1] = embers ? 0.6 + Math.random() * 1.2 : -(0.8 + Math.random() * 0.9); wxVel[i * 3 + 2] = (Math.random() - 0.5) * 0.6;
+  }
+  wxGeo.attributes.position.needsUpdate = true;
+}
+function updateWeather(dt, t) {
+  if (!weather.visible) return;
+  const cx = camera.position.x, cz = camera.position.z, hw = WX_W / 2, embers = wxMode === 'embers';
+  for (let i = 0; i < WX_N; i++) {
+    const k = i * 3, sway = Math.sin(t * (embers ? 2.2 : 0.9) + i) * (embers ? 0.5 : 0.35);
+    let x = wxPos[k] + (wxVel[k] + sway) * dt, y = wxPos[k + 1] + wxVel[k + 1] * dt, z = wxPos[k + 2] + wxVel[k + 2] * dt;
+    if (x - cx > hw) x -= WX_W; else if (x - cx < -hw) x += WX_W;
+    if (z - cz > hw) z -= WX_W; else if (z - cz < -hw) z += WX_W;
+    if (y < 0) y += WX_H; else if (y > WX_H) y -= WX_H;
+    wxPos[k] = x; wxPos[k + 1] = y; wxPos[k + 2] = z;
+  }
+  wxGeo.attributes.position.needsUpdate = true;
+}
+function applyTheme(th) {
+  scene.background.setHex(th.sky); scene.fog.color.setHex(th.fog); scene.fog.near = th.fogNear; scene.fog.far = th.fogFar;
+  hemi.color.setHex(th.hemi[0]); hemi.groundColor.setHex(th.hemi[1]); hemi.intensity = th.hemi[2];
+  sun.color.setHex(th.sun[0]); sun.intensity = th.sun[1];
+  setWeather(th.particles);
+  document.body.dataset.theme = th.name;
+}
 
 // ---------------------------------------------------------------- state
 const net = new Net();
@@ -190,41 +238,54 @@ function lambert(color, emissive = 0) { return new THREE.MeshLambertMaterial({ c
 function part(geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); return m; }
 function makeEnemyMesh(type) {
   const g = new THREE.Group(), def = ENEMIES[type];
-  const mat = lambert(def.color), dark = lambert(0x221a2a), eye = basic(type === 'golem' ? 0xff7a1a : 0xfff2a0);
+  // Frozen Forge skins: [body, dark/legs, eye]
+  const SK = { grunt: [0x6fa8dc, 0x2c4a6a, 0xe6ffff], archer: [0xbfe8ff, 0x5f8fb8, 0x2a6fd0], brute: [0x3a2c28, 0x1e1614, 0xffb040], bomber: [0x3e2a22, 0x1e1614, 0xffd060], golem: [0x8cc4f0, 0x3c5c7c, 0xff7a1a] }[type];
+  const mat = lambert(SK[0]), dark = lambert(SK[1]), eye = basic(SK[2]);
+  const frost = lambert(0xe2f4ff), molten = basic(0xff6a1a), hot = basic(0xffb040);
   const body = new THREE.Group(); g.add(body);
   g.userData = { mat, body, type };
-  if (type === 'grunt') {
-    body.add(part(BOX, mat, 0, 0.85, 0, 0.9, 0.95, 0.6));
-    body.add(part(BOX, mat, 0, 1.55, 0, 0.6, 0.5, 0.55));
-    body.add(part(BOX, eye, 0, 1.58, 0.28, 0.4, 0.1, 0.05));
-    body.add(part(BOX, dark, -0.25, 0.2, 0, 0.25, 0.4, 0.3)); body.add(part(BOX, dark, 0.25, 0.2, 0, 0.25, 0.4, 0.3));
-    const arm = part(BOX, mat, 0.6, 0.95, 0.2, 0.25, 0.25, 0.8); body.add(arm); g.userData.arm = arm;
-    body.add(part(BOX, mat, -0.6, 0.95, 0.1, 0.25, 0.25, 0.6));
-  } else if (type === 'archer') {
-    const cone = new THREE.ConeGeometry(0.5, 1.4, 5); body.add(part(cone, mat, 0, 0.7, 0));
-    body.add(part(new THREE.IcosahedronGeometry(0.32, 0), mat, 0, 1.6, 0));
-    body.add(part(BOX, eye, 0, 1.62, 0.26, 0.35, 0.08, 0.05));
-    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.05, 4, 8, Math.PI), dark); bow.position.set(0.45, 1.1, 0.35); bow.rotation.set(0, Math.PI / 2, Math.PI / 2); body.add(bow);
-    const orb = makeGlow(0xd060ff, 0.9); orb.position.set(0, 1.2, 0.7); orb.visible = false; body.add(orb); g.userData.orb = orb;
-  } else if (type === 'brute') {
+  if (type === 'grunt') { // ice golem: chunky blue block body with shard spikes
+    body.add(part(BOX, mat, 0, 0.85, 0, 1.0, 0.95, 0.7));
+    body.add(part(BOX, mat, 0, 1.55, 0, 0.62, 0.5, 0.58));
+    body.add(part(BOX, eye, 0, 1.58, 0.3, 0.42, 0.1, 0.05));
+    const spike = new THREE.ConeGeometry(0.16, 0.55, 4);
+    body.add(part(spike, frost, -0.42, 1.45, -0.05)); body.add(part(spike, frost, 0.42, 1.45, -0.05)); body.add(part(spike, frost, 0, 1.95, -0.05, 0.8, 0.8, 0.8));
+    body.add(part(BOX, dark, -0.27, 0.2, 0, 0.3, 0.4, 0.34)); body.add(part(BOX, dark, 0.27, 0.2, 0, 0.3, 0.4, 0.34));
+    const arm = part(BOX, mat, 0.66, 0.95, 0.2, 0.32, 0.32, 0.85); body.add(arm); g.userData.arm = arm;
+    body.add(part(BOX, mat, -0.66, 0.95, 0.1, 0.32, 0.32, 0.65));
+  } else if (type === 'archer') { // frost sprite: floating crystal with orbiting ice shards
+    const cone = new THREE.ConeGeometry(0.42, 1.2, 5); cone.rotateX(Math.PI); body.add(part(cone, mat, 0, 1.0, 0));
+    body.add(part(new THREE.OctahedronGeometry(0.34, 0), frost, 0, 1.85, 0, 1, 1.3, 1));
+    body.add(part(BOX, eye, 0, 1.86, 0.26, 0.3, 0.07, 0.05));
+    for (let k = 0; k < 3; k++) { const a = k * 2.09; body.add(part(SHARD, frost, Math.sin(a) * 0.7, 1.3 + k * 0.15, Math.cos(a) * 0.7, 0.1, 0.12, 0.1)); }
+    body.add(part(SHARD, frost, 0.45, 1.2, 0.35, 0.12, 0.22, 0.12));
+    const orb = makeGlow(0x8fe8ff, 0.9); orb.position.set(0, 1.2, 0.7); orb.visible = false; body.add(orb); g.userData.orb = orb;
+  } else if (type === 'brute') { // molten brute: dark crust with glowing orange cracks
     body.add(part(BOX, mat, 0, 1.2, 0, 1.8, 1.4, 1.2));
     body.add(part(BOX, mat, 0, 2.1, 0.2, 0.8, 0.6, 0.7));
     body.add(part(BOX, eye, 0, 2.15, 0.56, 0.6, 0.12, 0.05));
-    body.add(part(new THREE.ConeGeometry(0.15, 0.5, 4), dark, -0.35, 2.55, 0.2)); body.add(part(new THREE.ConeGeometry(0.15, 0.5, 4), dark, 0.35, 2.55, 0.2));
+    body.add(part(BOX, molten, 0, 1.35, 0.61, 1.2, 0.08, 0.02)); body.add(part(BOX, molten, -0.3, 1.0, 0.61, 0.08, 0.7, 0.02)); body.add(part(BOX, molten, 0.45, 0.9, 0.61, 0.5, 0.07, 0.02));
+    body.add(part(BOX, hot, 0, 1.2, -0.61, 0.9, 0.08, 0.02)); body.add(part(BOX, molten, 0.91, 1.3, 0, 0.02, 0.08, 0.8)); body.add(part(BOX, molten, -0.91, 1.1, 0, 0.02, 0.6, 0.08));
+    body.add(part(new THREE.ConeGeometry(0.15, 0.5, 4), molten, -0.35, 2.55, 0.2)); body.add(part(new THREE.ConeGeometry(0.15, 0.5, 4), molten, 0.35, 2.55, 0.2));
     body.add(part(BOX, mat, -1.15, 1.1, 0.2, 0.5, 1.2, 0.5)); body.add(part(BOX, mat, 1.15, 1.1, 0.2, 0.5, 1.2, 0.5));
+    body.add(part(BOX, hot, -1.15, 0.5, 0.2, 0.52, 0.12, 0.52)); body.add(part(BOX, hot, 1.15, 0.5, 0.2, 0.52, 0.12, 0.52));
     body.add(part(BOX, dark, -0.45, 0.3, 0, 0.5, 0.6, 0.6)); body.add(part(BOX, dark, 0.45, 0.3, 0, 0.5, 0.6, 0.6));
-  } else if (type === 'bomber') {
+  } else if (type === 'bomber') { // magma bomb: cracked crust with molten core poking through
     body.add(part(new THREE.IcosahedronGeometry(0.5, 0), mat, 0, 0.65, 0));
-    body.add(part(BOX, eye, 0, 0.75, 0.42, 0.4, 0.1, 0.05));
-    const fuse = makeGlow(0xff4020, 0.7); fuse.position.set(0, 1.3, 0); body.add(fuse); g.userData.orb = fuse;
+    const core = part(new THREE.IcosahedronGeometry(0.47, 0), molten, 0, 0.65, 0); core.rotation.set(0.6, 0.4, 0.3); body.add(core);
+    body.add(part(BOX, eye, 0, 0.75, 0.44, 0.4, 0.1, 0.05));
+    const fuse = makeGlow(0xff6a1a, 0.7); fuse.position.set(0, 1.3, 0); body.add(fuse); g.userData.orb = fuse;
     body.add(part(BOX, dark, 0, 1.1, 0, 0.08, 0.3, 0.08));
-  } else if (type === 'golem') {
+  } else if (type === 'golem') { // Forge Golem: ice body, molten core, lava-veined fists
     body.add(part(new THREE.DodecahedronGeometry(1.6, 0), mat, 0, 2.6, 0, 1, 1.1, 0.85));
     body.add(part(new THREE.DodecahedronGeometry(0.75, 0), mat, 0, 4.4, 0.3));
+    const sp = new THREE.ConeGeometry(0.3, 1.1, 4);
+    body.add(part(sp, frost, -1.1, 3.9, -0.2)); body.add(part(sp, frost, 1.1, 3.9, -0.2)); body.add(part(sp, frost, 0, 5.1, 0.1, 0.8, 0.8, 0.8));
     body.add(part(BOX, eye, -0.28, 4.45, 0.95, 0.25, 0.18, 0.1)); body.add(part(BOX, eye, 0.28, 4.45, 0.95, 0.25, 0.18, 0.1));
-    body.add(part(BOX, eye, 0, 2.7, 1.32, 0.5, 0.9, 0.1));
+    body.add(part(new THREE.OctahedronGeometry(0.6, 0), hot, 0, 2.7, 1.25, 1, 1.3, 0.5));
+    body.add(part(BOX, molten, 0, 2.0, 1.2, 0.08, 0.9, 0.08)); body.add(part(BOX, molten, -0.6, 3.1, 1.12, 0.7, 0.08, 0.08)); body.add(part(BOX, molten, 0.6, 3.2, 1.12, 0.7, 0.08, 0.08));
     const la = new THREE.Group(), ra = new THREE.Group(); la.position.set(-2.1, 3.3, 0); ra.position.set(2.1, 3.3, 0);
-    la.add(part(new THREE.DodecahedronGeometry(0.7, 0), mat, 0, -1.2, 0, 1, 1.6, 1)); ra.add(part(new THREE.DodecahedronGeometry(0.7, 0), mat, 0, -1.2, 0, 1, 1.6, 1));
+    for (const a of [la, ra]) { a.add(part(new THREE.DodecahedronGeometry(0.7, 0), mat, 0, -1.2, 0, 1, 1.6, 1)); a.add(part(new THREE.DodecahedronGeometry(0.5, 0), molten, 0, -2.25, 0, 1.1, 0.8, 1.1)); }
     body.add(la, ra); g.userData.la = la; g.userData.ra = ra;
     body.add(part(BOX, dark, -0.8, 0.6, 0, 0.9, 1.2, 0.9)); body.add(part(BOX, dark, 0.8, 0.6, 0, 0.9, 1.2, 0.9));
     const core = makeGlow(0xff7a1a, 2.4); core.position.set(0, 2.7, 1.4); body.add(core); g.userData.orb = core;
@@ -339,7 +400,7 @@ function shockwaveFx(x, z) {
   sfx.slam(); G.shake = Math.max(G.shake, 0.8);
 }
 function spawnFx(x, z, d, big) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(big ? 2.5 : 0.8, big ? 2.5 : 0.8, 10, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xff3060, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(big ? 2.5 : 0.8, big ? 2.5 : 0.8, 10, 8, 1, true), new THREE.MeshBasicMaterial({ color: G.floor === 1 ? 0x8fe8ff : 0xff6a20, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
   m.position.set(x, 5, z);
   addFx(m, d + 0.2, (f, t) => { m.material.opacity = 0.35 * Math.min(1, t * 4); m.scale.x = m.scale.z = 0.4 + t * 0.6; });
   if (Math.hypot(me.x - x, me.z - z) < 30) sfx.spawn();
@@ -390,7 +451,7 @@ function startFloor(m) {
   G.level = genLevel(m.seed, m.floor);
   const built = buildLevelMesh(G.level);
   G.levelGroup = built.group; scene.add(built.group);
-  scene.background.setHex(built.theme.sky); scene.fog.color.setHex(built.theme.fog);
+  applyTheme(built.theme);
   G.roomState = G.level.rooms.map(r => r.type === 'start' ? 'clear' : 'idle');
   G.activeRoom = -1;
   if (m.fresh) resetMe();
@@ -525,7 +586,7 @@ function applySnap(s, local) {
     const [id, x, y, z, k] = a; seenP.add(id);
     let p = G.eproj.get(id);
     if (!p) {
-      const col = k ? 0xff8a20 : 0xd060ff; const mesh = new THREE.Group(); mesh.add(part(SPH, basic(col), 0, 0, 0, 0.22, 0.22, 0.22)); mesh.add(makeGlow(col, 1.3));
+      const col = k ? 0xff8a20 : 0x8fe8ff; const mesh = new THREE.Group(); mesh.add(k ? part(SPH, basic(col), 0, 0, 0, 0.22, 0.22, 0.22) : part(SHARD, basic(0xe8fbff), 0, 0, 0, 0.22, 0.22, 0.22)); mesh.add(makeGlow(col, 1.3));
       mesh.position.set(x, y, z); scene.add(mesh); p = { id, mesh, x, y, z, vx: 0, vy: 0, vz: 0, at: performance.now() }; G.eproj.set(id, p);
       if (k === 0 && Math.hypot(me.x - x, me.z - z) < 30) sfx.enemyShoot();
     } else {
@@ -979,7 +1040,7 @@ function updateHud(dt) {
   if (isTouch) { $('btnSkill').style.setProperty('--cd', (cdFrac * 100) + '%'); $('btnDash').style.opacity = me.dashCd > 0 ? 0.45 : 1; }
   const g = me.guns[me.cur];
   setHTML('ammo', me.reloadT > 0 ? '<span class="rl">Reloading…</span>' : `<b class="${g.ammo === 0 ? 'empty' : ''}">${g.ammo}</b><span>/ ${g.reserve === Infinity ? '∞' : g.reserve}</span>`);
-  setHTML('gunSlots', me.guns.map((gg, i) => `<div class="slot ${i === me.cur ? 'cur' : ''}" style="border-color:${RARITIES[gg.rarity].color}"><span class="k">${i + 1}</span><span style="color:${RARITIES[gg.rarity].color}">${gg.name}</span>${gg.el !== 'none' ? `<i>${gg.el === 'fire' ? '🔥' : '⚡'}</i>` : ''}<small>${gg.dmg}${gg.pellets > 1 ? '×' + gg.pellets : ''} dmg</small></div>`).join(''));
+  setHTML('gunSlots', me.guns.map((gg, i) => `<div class="slot ${i === me.cur ? 'cur' : ''}" style="border-color:${RARITIES[gg.rarity].color}"><span class="k">${i + 1}</span><span style="color:${RARITIES[gg.rarity].color}">${gg.name}</span>${gg.el !== 'none' ? `<i>${gg.el === 'fire' ? '🔥' : '❄️'}</i>` : ''}<small>${gg.dmg}${gg.pellets > 1 ? '×' + gg.pellets : ''} dmg</small></div>`).join(''));
   let pr = '';
   if (G.nearPick && !me.down) {
     if (G.nearPick.kind === 'chest') pr = `${isTouch ? 'Tap USE' : 'Press E'} to open the chest`;
@@ -1036,10 +1097,12 @@ function frame(now) {
         if (net.online && G.lastSnapSend >= 0.05) { G.lastSnapSend = 0; net.others(snap); }
       }
       updateWorldVisuals(dt, t);
+      updateWeather(dt, t);
       updateCamera(dt);
       updateHud(dt);
     } else {
       camera.position.set(Math.sin(t * 0.1) * 16, 9, Math.cos(t * 0.1) * 16); camera.lookAt(0, 1, 0);
+      updateWeather(dt, t);
     }
   } catch (err) { console.error(err); }
   input.jump = input.dash = input.skill = input.reload = input.swap = input.use = false; input.slot = -1;
@@ -1055,7 +1118,7 @@ function addMenuBg() {
   if (G.menuGroup) return;
   const L = genLevel(12345, 1); const b = buildLevelMesh(L);
   b.group.position.set(-L.rooms[0].cx, 0, -L.rooms[0].cz); scene.add(b.group); G.menuGroup = b.group;
-  scene.background.setHex(b.theme.sky); scene.fog.color.setHex(b.theme.fog);
+  applyTheme(b.theme);
 }
 function hideMenuBg() { if (G.menuGroup) { scene.remove(G.menuGroup); G.menuGroup = null; } }
 addMenuBg();

@@ -150,7 +150,7 @@ export class HostSim {
       const e = this.spawnEnemy('golem', rm.cx, rm.cz - 4, 2.0);
       e.hp = e.maxHp = Math.round(ENEMIES.golem.hp * (1 + 0.5 * (this.floor - 1)) * (1 + 0.6 * (this.nPlayers() - 1)));
       this.bossId = e.id; e.phase = 0; e.cd = 3;
-      this.bcast({ t: 'boss', id: e.id, name: this.floor === 1 ? 'Cinder Golem' : 'Ashen Colossus' });
+      this.bcast({ t: 'boss', id: e.id, name: this.floor === 1 ? 'Forge Golem' : 'Forge Golem, Reforged' });
     }
   }
   clearRoom() {
