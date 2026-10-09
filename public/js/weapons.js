@@ -76,8 +76,8 @@ export function affixAllowed(type, a, chosen) {
   for (const id of chosen) { const o = AFFIX[id]; if ((a.ex && a.ex.includes(id)) || (o && o.ex && o.ex.includes(a.id))) return false; }
   return true;
 }
-export function rollAffixes(type, n, r = Math.random) {
-  const out = [];
+export function rollAffixes(type, n, r = Math.random, base = []) {
+  const out = base.slice(); n += base.length;
   for (let guard = 0; out.length < n && guard < 60; guard++) {
     const cands = AFFIXES.filter(a => affixAllowed(type, a, out));
     if (!cands.length) break;
@@ -140,14 +140,16 @@ export function makeGun(type, rarity = 0, affixes = [], ammo, reserve) {
   return g;
 }
 function elToAffix(el) { return el === 'fire' ? ['molten'] : el === 'shock' ? ['static'] : el === 'frost' ? ['frostbit'] : []; }
-export function gunSpec(g) { return { type: g.type, rarity: g.rarity, affixes: g.affixes.slice(), ammo: g.ammo, reserve: g.reserve === Infinity ? -1 : g.reserve }; }
+export function gunSpec(g) { return { type: g.type, rarity: g.rarity, affixes: g.affixes.slice(), ammo: g.ammo, reserve: g.reserve === Infinity ? -1 : g.reserve, rr: g.rr | 0 }; }
 export function gunFromSpec(s) {
   s = s || {};
   const aff = Array.isArray(s.affixes) ? s.affixes : elToAffix(s.el);
-  return makeGun(s.type, s.rarity, aff, s.ammo, s.reserve == null || s.reserve < 0 ? undefined : s.reserve);
+  const g = makeGun(s.type, s.rarity, aff, s.ammo, s.reserve == null || s.reserve < 0 ? undefined : s.reserve);
+  g.rr = Math.max(0, Math.min(30, s.rr | 0)); // how many times the weapon smith has rerolled this weapon (cost escalates)
+  return g;
 }
 // spec of a fresh weapon (no ammo info)
-export function cleanSpec(s) { s = s || {}; const type = GUN_TYPES[s.type] ? s.type : 'pistol'; const rarity = Math.max(0, Math.min(3, s.rarity | 0)); return { type, rarity, affixes: cleanAffixes(type, Array.isArray(s.affixes) ? s.affixes : elToAffix(s.el)) }; }
+export function cleanSpec(s) { s = s || {}; const type = GUN_TYPES[s.type] ? s.type : 'pistol'; const rarity = Math.max(0, Math.min(3, s.rarity | 0)); return { type, rarity, affixes: cleanAffixes(type, Array.isArray(s.affixes) ? s.affixes : elToAffix(s.el)), rr: Math.max(0, Math.min(30, s.rr | 0)) }; }
 
 export function rollGun(floor = 1, luck = 0, r = Math.random, pool = DEFAULT_POOL) {
   const types = (pool && pool.length ? pool : DEFAULT_POOL).filter(t => GUN_TYPES[t]);
@@ -196,4 +198,39 @@ export function gunTraits(g) {
   if (g.dual) t.push('Alternating twin pistols');
   if (g.auto) t.push('Full auto'); else t.push('Semi-auto');
   return t;
+}
+
+// ---------------------------------------------------------------- Weapon smith (reroll affixes with gold, upgrade rarity with Embers)
+// Gold cost to reroll the affixes of a weapon. n = rerolls already done on THIS weapon (escalates), lock = keep one affix (extra gold).
+export function rerollCost(rarity, n, lock = false) {
+  const base = (28 + 22 * (rarity | 0)) * Math.pow(1.45, Math.max(0, n | 0)) * (lock ? 1.75 : 1);
+  return Math.round(base / 5) * 5;
+}
+// Why a reroll is not possible (or null). affixes = current affix list
+export function rerollBlock(rarity, affixes) {
+  if (!affixes || !affixes.length) return rarity === 0 ? 'Common weapons have no affixes to reroll. Upgrade the rarity first.' : 'This weapon has no affixes to reroll.';
+  return null;
+}
+// New affix list for a reroll. Keeps `lockId` (if it is one of the current affixes), rerolls the others, and tries hard to give a different result.
+export function rerollAffixes(type, rarity, current, lockId = null, r = Math.random) {
+  const want = RARITIES[Math.max(0, Math.min(3, rarity | 0))].affixes;
+  const cur = Array.isArray(current) ? current : [];
+  const keep = lockId && cur.includes(lockId) && affixAllowed(type, AFFIX[lockId], []) ? [lockId] : [];
+  let best = null;
+  for (let tries = 0; tries < 12; tries++) {
+    const list = rollAffixes(type, Math.max(0, want - keep.length), r, keep);
+    best = list;
+    if (list.length !== cur.length || list.some(id => !cur.includes(id))) break; // differs from what the weapon had
+  }
+  return best;
+}
+// Ember cost to raise a weapon of this rarity by one tier (Common->Rare 40, Rare->Epic 90, Epic->Legendary 160); null at Legendary.
+export const RARITY_UP_EMBERS = [40, 90, 160];
+export function rarityUpCost(rarity) { rarity = rarity | 0; return rarity >= 0 && rarity < 3 ? RARITY_UP_EMBERS[rarity] : null; }
+// Rarity upgrade: +1 tier, keeps every existing affix and adds one new compatible affix (the extra affix slot).
+export function upgradeRarity(type, rarity, affixes, r = Math.random) {
+  const nr = Math.min(3, (rarity | 0) + 1);
+  const cur = cleanAffixes(type, affixes);
+  const added = nr > (rarity | 0) ? rollAffixes(type, 1, r, cur) : cur;
+  return { rarity: nr, affixes: added };
 }

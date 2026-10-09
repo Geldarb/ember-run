@@ -8,8 +8,8 @@ An original low-poly co-op roguelite FPS that runs in the browser (theme: the Fr
 - **Solo:** press ▶ Solo. Works anywhere, including GitHub Pages.
 - **Co-op (2–4 players):** one player presses *Co-op: Host* and shares the 5-letter room code or the invite link. Everyone else enters the code and presses *Join*. The host's tab runs the game for everybody, so the host should keep it open and in front.
   Co-op needs the relay server (`server.js`) to be online. GitHub Pages only serves static files, so the Pages build connects to the server in `public/js/config.js`. You can point it somewhere else with `?server=wss://your-host`.
-- **Desktop:** WASD move · mouse look · left click shoot · right click aim · Space jump · Shift dash · Q skill · R reload · 1/2 or wheel swap guns · E pick up/open · hold Tab (or I) to inspect your weapons · 1/2/3 pick a card · M mute · Esc pause.
-- **Mobile:** play in landscape. Use the left stick to move and drag on the right to look. There are buttons for FIRE / AIM / JUMP / DASH / SKILL / R / ⇄. Walk up to a weapon to see its stat card and tap USE to take it. Tap the weapon box (bottom right) to inspect your guns, and tap again to close.
+- **Desktop:** WASD move · mouse look · left click shoot · right click aim · Space jump · Shift dash · Q skill · R reload · 1/2 or wheel swap guns · E pick up/open/talk to a merchant (stat card shows within 3.5 m while you look at the weapon; pickup range is 2.4 m) · hold Tab (or I) to inspect your weapons · 1/2/3 pick a card · M mute · Esc pause.
+- **Mobile:** play in landscape. Use the left stick to move and drag on the right to look. There are buttons for FIRE / AIM / JUMP / DASH / SKILL / R / ⇄. Walk up to a weapon (within ~3.5 m, looking toward it) to see its stat card and tap USE to take it. Tap USE near a merchant to shop. Tap the weapon box (bottom right) to inspect your guns, and tap again to close.
 
 ## Characters
 Pick one on the main menu (or in the co-op lobby; each player picks their own, doubles allowed). Each has a starting gun, a Q / SKILL ability and a passive.
@@ -48,6 +48,13 @@ There are 21 affixes: Hair Trigger, Heavy Slugs, Extended Mag, Keen Eye, Quicklo
 Sensible exclusions apply: one element per gun and none on guns with an innate element, Heavy vs Overclocked, Glass vs Extended Mag, no Explosive/Pierce/Split on the rocket launcher, and so on. Names come from the affixes, e.g. *Molten Anvil Hand Cannon of Precision*.
 
 Walk up to (or look at) a weapon on the floor or a chest to see its **stat card**. The card shows damage, DPS, fire rate, magazine, reload, accuracy, crit, range, projectile speed / blast radius, pierce / chain and reserve ammo, each with ▲/▼ against the gun you're holding. It also lists the affixes and the element. Hold **Tab** to inspect your own guns. In co-op, pickups and drops are host-authoritative and synced, so the gun you swap out lands on the floor for everyone.
+
+## Gold and the merchants
+**Gold** 🪙 is an in-run currency: it resets every run and is never saved (Embers are the permanent one). The HUD shows it, bottom left. Every kill pays gold by enemy type (Grunt 4, Archer 6, Bomber 3, Brute 14, +20% per floor, ±15%). The **killer** is paid. Boss kills pay **every** player (150 base), room clears pay a small bonus and chests give 40. In co-op each player has their own gold and their own shop stock.
+
+Every floor has one guaranteed **Merchants' camp** (a safe room right before the boss, with no enemies and no locked doors). Walk up to a merchant and press **E** (**Tap USE** on mobile). The game keeps running while a shop is open and your character stands still, so in co-op everyone can shop at once. Esc, E or the ✕ button closes it.
+- 🧔 **Brokk the Peddler (weapons):** 4 random weapons with the full stat card (rarity, affixes, ▲/▼ vs your equipped gun) and a gold price by rarity (45 / 100 / 190 / 340, +15% per floor). Buying puts the weapon in your inventory and it shows SOLD OUT. With both slots full you choose which gun to replace and the old one drops on the floor. 🎲 **Reroll stock** costs 30 gold and goes up each time. He also sells Forge Rations (+50 HP) and an Ammo Crate. Keys 1-4 buy on desktop.
+- 🔨 **Dagna the Weaponsmith:** pick one of your weapons. **Reroll affixes** (gold): all affixes get re-rolled, or tap an affix to lock it for +75% cost. The cost grows with rarity and with every reroll on that weapon. You see Before / After cards and can **Keep** or **Revert** once (no refund). **Upgrade rarity** (Common → Rare → Epic → Legendary): costs **Embers only** (40 / 90 / 160), adds one affix slot and boosts the base stats. The Embers come out of your saved balance immediately (the save is re-read first, so refreshing or a second tab can't dodge the cost). It is disabled with an explanation when you can't afford it.
 
 ## The Forge (permanent progress)
 Each run earns **Embers**: 4 per room, 1 per 2 kills, 20 per floor, 30 per boss and +60 for a victory. The end screen shows the breakdown. Spend them in **🔥 The Forge** on the main menu:
@@ -90,6 +97,7 @@ URL flags: `?server=wss://host` (co-op server; invite links carry it along), `?j
 - `public/js/host.js`: host-authoritative sim (rooms, waves, enemy AI, boss, pickups).
 - `public/js/main.js`: rendering, input (desktop + touch), player, weapons, HUD, FX.
 - `public/js/weapons.js`: weapon types, rarities, affixes, name/stat generation (pure, unit-tested).
+- `public/js/shop.js`: gold economy, prices, merchant stock, tooltip range constants (pure, unit-tested).
 - `public/js/meta.js`: Forge save data, prices, bonuses and Ember earnings (pure, unit-tested).
 - `public/js/level.js`, `data.js`, `audio.js`: level generation, game data (characters, perks, skill upgrades), procedural sound.
 - `tests/`: `node tests/unit.js` (weapon generator + save data, no browser). Puppeteer/ws tests, which need `puppeteer-core` + `ws` installed and take the base URL as the first argument:
@@ -100,3 +108,6 @@ URL flags: `?server=wss://host` (co-op server; invite links carry it along), `?j
   - `progress.js`: Forge buy/persist/reset, run bonuses, skill-upgrade offer and effects, Embers, mobile tooltip/inspect
   - `coop_progress.js`: 3 players: per-player saves, pickup/drop sync, contested pickup, independent picks, disconnect/timeout
   - `floor3.js`: Ember Core and boss
+  - `shop.js`: tooltip range (far vs near), gold from kills/chests, shop buy/swap/reroll/consumables, smith reroll/lock/revert, Ember rarity upgrades (persisted, refused when poor), level guarantees
+  - `shop_coop.js`: 3 players using both merchants at once (per-player gold/stock, killer paid, boss pays all, drops and upgraded rarity synced)
+  - `shop_mobile.js`: touch: tooltip + Tap USE, shop and smith UIs by tap

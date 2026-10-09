@@ -37,7 +37,7 @@ function noise(dur, vol = 0.3, ftype = 'lowpass', f0 = 2000, f1 = 300, delay = 0
   const g = ctx.createGain(); env(g, t, 0.003, vol, dur);
   s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
 }
-let lastHit = 0;
+let lastHit = 0, lastGold = 0;
 export const sfx = {
   shoot(type, el) {
     if (type === 'pistol') { noise(0.12, 0.35, 'bandpass', 3000, 800, 0, 1.2); tone('square', 520, 120, 0.08, 0.12); }
@@ -83,4 +83,8 @@ export const sfx = {
   victory() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone('triangle', f, f, 0.35, 0.15, i * 0.12)); },
   defeat() { [392, 330, 262, 196].forEach((f, i) => tone('sawtooth', f, f * 0.98, 0.4, 0.12, i * 0.2)); },
   spawn() { tone('sine', 200, 800, 0.4, 0.05); },
+  gold() { const n = performance.now(); if (n - lastGold < 60) return; lastGold = n; tone('triangle', 1500, 2200, 0.07, 0.07); tone('sine', 2200, 2900, 0.08, 0.05, 0.05); },
+  buy() { tone('square', 700, 700, 0.06, 0.1); tone('square', 1050, 1050, 0.1, 0.1, 0.07); },
+  anvil() { noise(0.12, 0.35, 'bandpass', 3500, 2500, 0, 4); tone('sine', 1250, 1100, 0.35, 0.15); tone('square', 2500, 2400, 0.12, 0.05); },
+  deny() { tone('square', 180, 120, 0.12, 0.1); },
 };

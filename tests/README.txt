@@ -3,3 +3,5 @@ Unit (no browser):  node tests/unit.js
 Browser/ws:         node solo.js <url>/ ; node coop.js <url>/ ; node ws.js <url> ; node chars_solo.js <url>/ <char> ; node chars_coop.js <url>/ ;
                     node chars_mobile.js <url>/ ; node weapons.js <url>/ ; node progress.js <url>/ ; node coop_progress.js <url>/ ; node floor3.js <url>/ ; node theme.js <url>/
 Screenshots go to /tmp/embertest/ (shots_v3/ for weapons, Forge, skill upgrades, tooltips).
+
+Gold / merchants: node shop.js <url>/ ; node shop_coop.js <url>/ ; node shop_mobile.js <url>/  (screenshots in /tmp/embertest/shots_v4/)

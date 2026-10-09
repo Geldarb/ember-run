@@ -100,6 +100,46 @@ const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e * Math.max(1, Math.abs(b))
   ok(M.loadMeta(bad).embers === 0 && M.saveMeta(bad, m) === false, 'storage that throws (private mode)');
   // reset
   M.saveMeta(S, { ...M.defaultMeta(), embers: 77 }); m = M.resetMeta(S); ok(m.embers === 0 && S.getItem(M.META_KEY) === null, 'reset');
+  // ---------------- gold economy, shop stock, weapon smith (v4)
+  const SH = await import(path.join(root, 'shop.js'));
+  ok(SH.goldFor('grunt', 1, () => 0.5) === 4 && SH.goldFor('brute', 1, () => 0.5) === 14 && SH.goldFor('golem', 1, () => 0.5) === 150, 'gold per enemy type');
+  ok(SH.goldFor('grunt', 3, () => 0.5) > SH.goldFor('grunt', 1, () => 0.5) && SH.goldFor('brute', 1, () => 0.5) > SH.goldFor('grunt', 1, () => 0.5), 'gold scales with floor + enemy type');
+  ok(SH.goldFor('golem', 1) > 8 * SH.goldFor('brute', 1) / 2 && SH.goldFor('bogus', 1) === 0, 'boss pays big; unknown pays 0');
+  ok(SH.weaponPrice({ rarity: 0 }, 1) < SH.weaponPrice({ rarity: 1 }, 1) && SH.weaponPrice({ rarity: 2 }, 1) < SH.weaponPrice({ rarity: 3 }, 1) && SH.weaponPrice({ rarity: 1 }, 3) > SH.weaponPrice({ rarity: 1 }, 1), 'prices scale with rarity and floor');
+  ok(SH.stockRerollCost(1) > SH.stockRerollCost(0) && SH.stockRerollCost(4) > SH.stockRerollCost(2), 'stock reroll cost escalates');
+  const st1 = SH.genStock(SH.stockSeed(7, 1, 1, 0), 1, undefined, 0), st1b = SH.genStock(SH.stockSeed(7, 1, 1, 0), 1, undefined, 0), st2 = SH.genStock(SH.stockSeed(7, 1, 1, 1), 1, undefined, 0), st3 = SH.genStock(SH.stockSeed(7, 1, 2, 0), 1, undefined, 0);
+  ok(st1.length === 4 && JSON.stringify(st1) === JSON.stringify(st1b), 'stock: 4 items, deterministic per (run, floor, player, reroll)');
+  ok(JSON.stringify(st1) !== JSON.stringify(st2) && JSON.stringify(st1) !== JSON.stringify(st3), 'stock differs after reroll and per player');
+  let allRare = true; for (let i = 0; i < 300; i++) { const s = SH.genStock(SH.stockSeed(i, 1 + i % 3, 1, 0), 1 + i % 3); if (!s.some(x => x.spec.rarity >= 1)) allRare = false; if (s.some(x => x.price <= 0 || x.spec.affixes.length !== RARITIES[x.spec.rarity].affixes)) { allRare = false; break; } }
+  ok(allRare, 'every stock has a Rare+ and valid affix counts/prices');
+  ok(!SH.genStock(1, 1, undefined, 0).some(x => x.spec.type in LOCKED_GUNS), 'stock respects locked weapons');
+  // smith
+  ok(W.rerollCost(0, 0) > 0 && W.rerollCost(2, 0) > W.rerollCost(0, 0) && W.rerollCost(1, 3) > W.rerollCost(1, 2) && W.rerollCost(1, 2) > W.rerollCost(1, 1) && W.rerollCost(1, 0, true) > W.rerollCost(1, 0), 'reroll gold cost escalates per reroll / rarity, lock costs extra');
+  ok(!!W.rerollBlock(0, []) && !W.rerollBlock(2, ['hair', 'keen']), 'common weapons cannot reroll');
+  let changed = 0, badR = 0;
+  for (let i = 0; i < 600; i++) {
+    const s = rollGun(2, 0, rnd, Object.keys(GUN_TYPES)); if (s.rarity < 1) continue;
+    const lock = s.affixes[0];
+    const a = W.rerollAffixes(s.type, s.rarity, s.affixes, null, rnd), l = W.rerollAffixes(s.type, s.rarity, s.affixes, lock, rnd);
+    if (a.length !== s.affixes.length || l.length !== s.affixes.length || !l.includes(lock) || cleanAffixes(s.type, a).length !== a.length || cleanAffixes(s.type, l).length !== l.length) badR++;
+    if (a.some(id => !s.affixes.includes(id))) changed++;
+  }
+  ok(badR === 0 && changed > 300, `affix reroll: valid, keeps locked affix, changes the set (bad=${badR} changed=${changed})`);
+  ok(W.rarityUpCost(0) === 40 && W.rarityUpCost(1) === 90 && W.rarityUpCost(2) === 160 && W.rarityUpCost(3) === null, 'Ember costs 40/90/160, none at Legendary');
+  for (const t of Object.keys(GUN_TYPES)) {
+    let aff = [], rar = 0;
+    for (let k = 0; k < 3; k++) { const u = W.upgradeRarity(t, rar, aff, rnd); if (u.rarity !== rar + 1 || u.affixes.length !== aff.length + 1 || !aff.every(x => u.affixes.includes(x)) || cleanAffixes(t, u.affixes).length !== u.affixes.length) { ok(false, `upgrade ${t} ${rar}`); break; } const o = makeGun(t, rar, aff), n = makeGun(t, u.rarity, u.affixes); if (!(n.dmg >= o.dmg * 0.9)) ok(false, 'upgrade lowers damage ' + t); rar = u.rarity; aff = u.affixes; }
+    ok(rar === 3 && aff.length === 3, `${t}: Common -> Legendary adds one affix per tier`);
+    ok(W.upgradeRarity(t, 3, aff, rnd).rarity === 3, `${t}: cannot go past Legendary`);
+  }
+  ok(makeGun('rifle', 1, ['hair']).dmg > makeGun('rifle', 0, []).dmg, 'rarity upgrade raises base stats');
+  ok(gunFromSpec(JSON.parse(JSON.stringify({ ...gunSpec(makeGun('rifle', 1, ['hair'])), rr: 4 }))).rr === 4 && W.cleanSpec({ type: 'rifle', rr: 99 }).rr === 30 && W.cleanSpec({ type: 'rifle', rr: -3 }).rr === 0, 'reroll counter survives spec round trip (dropping a weapon cannot reset its cost) and is clamped');
+  // Ember spend
+  { const S2 = store(); let mm = M.loadMeta(S2); mm.embers = 100; let rr2 = M.spendEmbers(mm, 40); ok(rr2.ok && mm.embers === 60 && mm.stats.smithEmbers === 40, 'spendEmbers deducts');
+    rr2 = M.spendEmbers(mm, 90); ok(!rr2.ok && mm.embers === 60 && /more Embers/.test(rr2.msg), 'spendEmbers refuses when poor, balance untouched');
+    ok(!M.spendEmbers(mm, 0).ok && !M.spendEmbers(mm, -5).ok && mm.embers === 60, 'spendEmbers rejects 0 / negative');
+    M.saveMeta(S2, mm); ok(M.loadMeta(S2).embers === 60 && M.loadMeta(S2).stats.smithEmbers === 40, 'spent Embers persist'); }
+  ok(SH.CARD_RANGE === 3.5 && SH.CARD_RANGE < 5, 'tooltip range is ~3.5m');
   console.log(`unit: ${passes} passed, ${fails} failed`);
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error('UNIT FAIL', e); process.exit(1); });

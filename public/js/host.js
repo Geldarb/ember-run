@@ -1,5 +1,6 @@
 // Host-authoritative simulation: rooms, waves, enemies, enemy projectiles, pickups.
 import { ENEMIES, ENEMY_TYPES, FLOORS, rollGun, cleanSpec, DEFAULT_POOL, GUN_TYPES, rand, clamp, charOf } from './data.js';
+import { goldFor } from './shop.js';
 import { collide, roomAt, pointInSolid, setDoors } from './level.js';
 
 const R2 = v => Math.round(v * 100) / 100;
@@ -142,11 +143,13 @@ export class HostSim {
     this.enemies.delete(e.id);
     const by = e.lastBy || 0;
     this.kills[by] = (this.kills[by] || 0) + 1;
-    this.bcast({ t: 'kill', id: e.id, by, x: R2(e.x), y: R2(e.y), z: R2(e.z), type: e.type, sk: e.skT > this.time - 0.6 && e.skBy === by ? 1 : 0, boss: e.id === this.bossId ? 1 : 0 });
+    // Gold: the killer is paid (summoned adds killed with the boss pay nothing). The boss pays EVERY player.
+    const isBoss = e.type === 'golem', gd = e.noGold ? 0 : goldFor(e.type, this.floor);
+    this.bcast({ t: 'kill', id: e.id, by, x: R2(e.x), y: R2(e.y), z: R2(e.z), type: e.type, sk: e.skT > this.time - 0.6 && e.skBy === by ? 1 : 0, boss: e.id === this.bossId ? 1 : 0, gd, ga: isBoss ? 1 : 0 });
     if (by && this.charOf(by) === 'cinder' && Math.random() < 0.15) this.ignite(e.x, e.z, 5.5, by); // Cinder passive: Wildfire
     if (e.type === 'bomber') this.explodeAt(e.x, e.z, 3.5, 0, by); // killed bombers blow up on enemies only
     const r = Math.random();
-    if (e.type === 'golem') { for (const o of [...this.enemies.values()]) { o.lastBy = by; this.kill(o); } return; }
+    if (e.type === 'golem') { for (const o of [...this.enemies.values()]) { o.lastBy = by; o.noGold = true; this.kill(o); } return; }
     if (r < 0.13) this.addPickup({ kind: 'ammo', x: e.x, z: e.z });
     else if (r < 0.19) this.addPickup({ kind: 'hp', x: e.x, z: e.z });
     else if (r < 0.215) this.addPickup({ kind: 'gun', x: e.x, z: e.z, gun: this.roll(0) });
@@ -314,6 +317,7 @@ export class HostSim {
         if (ri >= 0 && this.roomState[ri] === 'idle') {
           const t = L.rooms[ri].type;
           if (t === 'chest') { this.roomState[ri] = 'clear'; this.bcast({ t: 'clear', room: ri, chest: 1 }); continue; }
+          if (t === 'shop') { this.roomState[ri] = 'clear'; this.bcast({ t: 'clear', room: ri, shop: 1 }); continue; } // safe merchants' camp: no fight
           this.activate(ri); break;
         }
       }

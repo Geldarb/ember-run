@@ -1,6 +1,7 @@
 // Level generation (deterministic from seed), collision and mesh building
 import * as THREE from 'three';
 import { mulberry32, clamp } from './data.js';
+import { shopSpots } from './shop.js';
 
 const CELL = 50, GAP = 2; // GAP = half corridor width
 const DIRS = { E: [1, 0], W: [-1, 0], N: [0, -1], S: [0, 1] };
@@ -8,7 +9,7 @@ const OPP = { E: 'W', W: 'E', N: 'S', S: 'N' };
 
 export function genLevel(seed, floor) {
   const r = mulberry32(seed * 7919 + floor * 104729);
-  const total = 5 + Math.floor(r() * 3); // start + 3..5 middle + boss => 4..6 playable rooms
+  const total = 6 + Math.floor(r() * 3); // start + 4..6 middle + boss; the last middle room is the Merchants' camp (shop), one middle room is the chest room
   let cells;
   for (let tries = 0; tries < 200; tries++) {
     cells = [{ gx: 0, gz: 0, dir: null }];
@@ -35,7 +36,9 @@ export function genLevel(seed, floor) {
     return { i, type, cx: c.gx * CELL, cz: c.gz * CELL, hw, hd, doors: {}, entry: null, exit: null };
   });
   // one chest room in the middle when there are enough rooms
-  const mids = rooms.filter(rm => rm.type === 'combat');
+  let mids = rooms.filter(rm => rm.type === 'combat');
+  // safe shop room right before the boss: the Merchant (gold -> weapons) and the Weapon Smith (reroll affixes, upgrade rarity)
+  { const sh = mids[mids.length - 1]; sh.type = 'shop'; sh.hw = sh.hd = 11; mids = mids.slice(0, -1); }
   if (mids.length >= 3) { const c = mids[1 + Math.floor(r() * (mids.length - 1))]; c.type = 'chest'; c.hw = c.hd = 10; }
 
   const boxes = [], floors = [], decor = [];
@@ -78,7 +81,7 @@ export function genLevel(seed, floor) {
       for (const o of obs) if (!(x1 + 1.6 < o.x0 || x0 - 1.6 > o.x1 || z1 + 1.6 < o.z0 || z0 - 1.6 > o.z1)) return false;
       return true;
     };
-    let n = rm.type === 'combat' ? 5 + Math.floor(r() * 5) : rm.type === 'boss' ? 0 : 2;
+    let n = rm.type === 'combat' ? 5 + Math.floor(r() * 5) : rm.type === 'boss' || rm.type === 'shop' ? 0 : 2;
     if (rm.type === 'boss') {
       for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         const x = cx + sx * 11, z = cz + sz * 11;
@@ -96,6 +99,10 @@ export function genLevel(seed, floor) {
       if (free(o.x0, o.x1, o.z0, o.z1)) { obs.push(o); k++; }
     }
     boxes.push(...obs);
+    if (rm.type === 'shop') { // the two stalls are solid (kind 'stall' has no instanced mesh: main.js draws the merchants)
+      const sp = shopSpots(rm);
+      for (const k of ['shop', 'smith']) { const p = sp[k]; boxes.push({ x0: p.x - 1, x1: p.x + 1, z0: p.z - 1, z1: p.z + 1, top: 1.1, kind: 'stall' }); }
+    }
     // decor crystals on corners
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) decor.push({ x: cx + sx * (hw - 0.8), z: cz + sz * (hd - 0.8), room: rm.i });
   }
@@ -283,7 +290,7 @@ export function buildLevelMesh(level) {
     // decorative lava pools (flat, no gameplay effect), kept away from obstacles and doors
     const pools = [];
     for (const rm of level.rooms) {
-      if (rm.type === 'start') continue;
+      if (rm.type === 'start' || rm.type === 'shop') continue;
       const core = theme.name === 'core'; // the Ember Core is lava-heavy
       const want = rm.type === 'boss' ? (core ? 8 : 4) : core ? 3 + Math.floor(rr() * 3) : 1 + Math.floor(rr() * 2);
       for (let k = 0, guard = 0; k < want && guard < 40; guard++) {
@@ -299,6 +306,13 @@ export function buildLevelMesh(level) {
     inst(rimGeo, new THREE.MeshLambertMaterial({ color: 0x1a1412, flatShading: true }), pools, p => { dummy.position.set(p.x, 0.012, p.z); dummy.scale.set(p.r + 0.35, 1, p.r + 0.35); dummy.rotation.y = p.r * 3; });
     inst(rimGeo, lava, pools, p => { dummy.position.set(p.x, 0.02, p.z); dummy.scale.set(p.r, 1, p.r); dummy.rotation.y = p.r * 3; });
     inst(rimGeo, lavaHot, pools, p => { dummy.position.set(p.x, 0.025, p.z); dummy.scale.set(p.r * 0.5, 1, p.r * 0.5); dummy.rotation.y = p.r * 3 + 0.5; });
+  }
+  // Merchants' camp: a warm rug under the stalls
+  for (const rm of level.rooms) if (rm.type === 'shop') {
+    const rug = new THREE.Mesh(unit, new THREE.MeshLambertMaterial({ color: ice ? 0x8a3a2a : 0x6a2a1a, flatShading: true }));
+    rug.position.set(rm.cx, 0.01, rm.cz - 1); rug.scale.set(11, 0.03, 6.5); group.add(rug);
+    const trim = new THREE.Mesh(unit, new THREE.MeshLambertMaterial({ color: 0xd8a040, flatShading: true }));
+    trim.position.set(rm.cx, 0.015, rm.cz - 1); trim.scale.set(11.5, 0.02, 7); group.add(trim); trim.renderOrder = -1;
   }
   // sealed-door energy (ice wall on floor 1, heat haze on the forge floor)
   const doorMat = new THREE.MeshBasicMaterial({ color: theme.door, transparent: true, opacity: 0.5, depthWrite: false });

@@ -19,6 +19,7 @@
   <div id="hurtDir"><div></div></div>
   <div id="topbar"><div id="roomInfo"></div><div id="objective"></div></div>
   <div id="bossbar" class="hidden"><div id="bossName"></div><div class="bar"><div id="bossFill"></div></div></div>
+  <div id="goldBox" title="Gold: in-run currency (resets every run). Spend it at the Merchant and Weapon Smith."><span class="gi">🪙</span><b id="goldText">0</b><span id="goldGain"></span></div>
   <div id="team"></div>
   <div id="perkIcons"></div>
   <div id="skillUps"></div>
@@ -55,6 +56,18 @@
 </div>
 <div id="inspect" class="hidden"></div>
 
+<div id="merchant" class="screen mscreen hidden">
+  <div class="panel wide mpanel">
+    <div class="mhead">
+      <h2 id="mTitle">Merchant</h2>
+      <div class="mwallet"><span class="mw gold">🪙 <b id="mGold">0</b></span><span class="mw embers" id="mEmbersWrap">🔥 <b id="mEmbers">0</b> Embers</span></div>
+      <button id="mClose" class="mclose">✕ Close</button>
+    </div>
+    <div id="mBody"></div>
+    <div id="mMsg" class="note"></div>
+  </div>
+</div>
+
 <div id="menu" class="screen">
   <div class="panel menuPanel">
     <h1>EMBER <span>RUN</span><small class="subtitle">❄ Frozen Forge 🔥</small></h1>
@@ -73,9 +86,9 @@
     <div id="menuErr"></div>
     <div class="btns small"><button class="fsBtn">⛶ Fullscreen</button><button id="muteBtn">🔊 Sound on</button></div>
     <details class="help"><summary>How to play</summary>
-      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q character skill · R reload · 1/2 or wheel swap guns · E pick up / open · hold Tab (or I) inspect your guns · M mute · Esc pause.</p>
-      <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Walk up to a weapon to see its card, tap USE to take it, tap your weapon bar to inspect your guns. Play in landscape.</p>
-      <p>Pick a character: each has its own starting gun, a Q skill and an always-on passive. Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Beat the boss at the end of each floor, choose an upgrade for your skill, then step into the portal. Three floors: Ice Halls, Molten Forge, the Ember Core. Weapons roll a rarity and random affixes; look at one to compare it with yours. Every run earns Embers to spend in the Forge. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
+      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q character skill · R reload · 1/2 or wheel swap guns · E pick up / open / talk to merchants · hold Tab (or I) inspect your guns · M mute · Esc pause.</p>
+      <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Walk up to a weapon to see its card, tap USE to take it or to talk to a merchant, tap your weapon bar to inspect your guns. Play in landscape.</p>
+      <p>Pick a character: each has its own starting gun, a Q skill and an always-on passive. Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Beat the boss at the end of each floor, choose an upgrade for your skill, then step into the portal. Three floors: Ice Halls, Molten Forge, the Ember Core. Weapons roll a rarity and random affixes; look at one to compare it with yours. Enemies drop gold (reset every run): spend it at the Merchant (weapons) and the Weapon Smith (reroll affixes) in the camp before each boss. The Smith upgrades weapon rarity for Embers only. Every run earns Embers to spend in the Forge. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
     </details>
   </div>
 </div>
