@@ -21,9 +21,10 @@ let fails = 0; const check = (c, msg, extra) => { console.log((c ? 'ok   ' : 'FA
   const B = await mk('Bob', 'cinder', { unlocked: { minigun: true }, up: { vit: 5 } });
   const C = await mk('Cara', 'anvil', null);
   const all = [['A', A], ['B', B], ['C', C]];
-  await A.click('#hostBtn'); await sleep(1500);
+  await A.click('#hostBtn'); await A.waitForFunction(() => /^[A-Z0-9]{4,6}$/.test(document.getElementById('lobbyCode').textContent), { timeout: 90000 });
   const code = await A.$eval('#lobbyCode', e => e.textContent);
-  for (const P of [B, C]) { await P.type('#codeInput', code); await P.click('#joinBtn'); await sleep(1500); }
+  for (const P of [B, C]) { await P.type('#codeInput', code); await P.click('#joinBtn'); await P.waitForFunction(() => !document.getElementById('lobby').classList.contains('hidden'), { timeout: 60000 }); await sleep(500); }
+  await A.waitForFunction(() => !document.getElementById('startBtn').disabled && getComputedStyle(document.getElementById('startBtn')).display !== 'none', { timeout: 30000 });
   await A.click('#startBtn'); await sleep(2500);
   const unpause = p => p.evaluate(() => { __dbg.G.paused = false; document.getElementById('pause').classList.add('hidden'); });
   for (const [, P] of all) await unpause(P);
