@@ -54,7 +54,7 @@ const URL = process.argv[2] || 'http://localhost:3010/';
   console.log('guns', JSON.stringify(await ev(() => __dbg.me.guns.map(g => g.name))));
   // go through all rooms to boss
   const nRooms = info.rooms.length;
-  for (let floor = 1; floor <= 2; floor++) {
+  for (let floor = 1; floor <= 3; floor++) {
     for (let i = 1; i < (await ev(() => __dbg.G.level.rooms.length)); i++) {
       await ev((i) => { const { G, me } = __dbg; G.perkOpen && __dbg.choosePerk(0); const r = G.level.rooms[i]; me.x = r.entryPt[0]; me.z = r.entryPt[1]; me.hp = me.maxHp; }, i);
       await new Promise(r => setTimeout(r, 400));
@@ -69,7 +69,9 @@ const URL = process.argv[2] || 'http://localhost:3010/';
     }
     const pst = await ev(() => ({ portal: !!__dbg.G.portal, floor: __dbg.G.floor }));
     console.log('floor', floor, 'portal', JSON.stringify(pst));
-    await ev(() => { const { G, me } = __dbg; G.perkOpen && __dbg.choosePerk(0); if (G.portal) { me.x = G.portal.x; me.z = G.portal.z; } });
+    for (let w = 0; w < 12; w++) { const st = await ev(() => { const { G } = __dbg; if (G.perkOpen) __dbg.choosePerk(0); return { portal: !!G.portal, over: G.over, open: G.perkOpen, offer: G.skillOffer }; }); if ((st.portal && !st.open && !st.offer) || st.over) break; await new Promise(r => setTimeout(r, 400)); }
+    console.log('floor', floor, 'skillUps', await ev(() => (__me.skillUpList || []).join(',')));
+    await ev(() => { const { G, me } = __dbg; if (G.portal) { me.x = G.portal.x; me.z = G.portal.z; } });
     await new Promise(r => setTimeout(r, 1200));
     console.log('now floor', await ev(() => __dbg.G.floor), 'over', await ev(() => __dbg.G.over));
   }

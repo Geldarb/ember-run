@@ -116,7 +116,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log('char perk offered', JSON.stringify(perkSeen));
   await ev(() => { const i = [...document.querySelectorAll('#perkCards .pname')].findIndex(e => ['Lingering Pyre', 'Permafrost', 'Aftershock', 'Kindred Flame'].includes(e.textContent)); __dbg.choosePerk(Math.max(0, i)); });
   if (FULL) {
-    for (let floor = 1; floor <= 2; floor++) {
+    for (let floor = 1; floor <= 3; floor++) {
       const n = await ev(() => __dbg.G.level.rooms.length);
       for (let i = 1; i < n; i++) {
         await ev((i) => { const { G, me } = __dbg; G.perkOpen && __dbg.choosePerk(0); const r = G.level.rooms[i]; me.x = r.entryPt[0]; me.z = r.entryPt[1]; me.hp = me.maxHp; }, i);
@@ -131,7 +131,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         }
         await sleep(800);
       }
-      await ev(() => { const { G, me } = __dbg; G.perkOpen && __dbg.choosePerk(0); if (G.portal) { me.x = G.portal.x; me.z = G.portal.z; } });
+      for (let w = 0; w < 12; w++) { const st = await ev(() => { const { G } = __dbg; if (G.perkOpen) __dbg.choosePerk(0); return { portal: !!G.portal, over: G.over, open: G.perkOpen, offer: G.skillOffer }; }); if ((st.portal && !st.open && !st.offer) || st.over) break; await sleep(400); }
+    console.log('floor', floor, 'skillUps', await ev(() => (__me.skillUpList || []).join(',')));
+    await ev(() => { const { G, me } = __dbg; if (G.portal) { me.x = G.portal.x; me.z = G.portal.z; } });
       await sleep(1300);
     }
     console.log('end', await ev(() => document.getElementById('endTitle').textContent), 'endVisible', await ev(() => !document.getElementById('end').classList.contains('hidden')), 'perks', await ev(() => __me.perkList.join(',')));
