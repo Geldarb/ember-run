@@ -184,7 +184,7 @@ export function setDoors(level, roomIdx, active) {
   for (const b of level.boxes) if (b.kind === 'door' && b.room === roomIdx) { b.active = active; if (b.mesh) b.mesh.visible = active; }
 }
 
-// Frozen Forge themes. Floor 1 = snowy ice halls, floor 2 = molten forge, (3 = lava core, spare).
+// Frozen Forge themes. Floor 1 = snowy ice halls, floor 2 = molten forge, floor 3 = the Ember Core (lava-heavy).
 // Lighting values are applied by main.js per floor (no extra lights are added).
 export const THEMES = [
   { name: 'ice', floor: '#cfe2f1', floor2: '#bcd5ea', line: 'rgba(255,255,255,0.35)', wall: 0x9fc3e2, pillar: 0xd8ecfb, crate: 0x8cc6ee, cover: 0xe8f3fb,
@@ -284,7 +284,8 @@ export function buildLevelMesh(level) {
     const pools = [];
     for (const rm of level.rooms) {
       if (rm.type === 'start') continue;
-      const want = rm.type === 'boss' ? 4 : 1 + Math.floor(rr() * 2);
+      const core = theme.name === 'core'; // the Ember Core is lava-heavy
+      const want = rm.type === 'boss' ? (core ? 8 : 4) : core ? 3 + Math.floor(rr() * 3) : 1 + Math.floor(rr() * 2);
       for (let k = 0, guard = 0; k < want && guard < 40; guard++) {
         const rad = 0.9 + rr() * 1.1, x = rm.cx + (rr() * 2 - 1) * (rm.hw - rad - 1.5), z = rm.cz + (rr() * 2 - 1) * (rm.hd - rad - 1.5);
         if (Math.hypot(x - rm.cx, z - rm.cz) < 5) continue;
