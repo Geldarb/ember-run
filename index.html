@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#150f22">
+<title>Ember Run</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🔥%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud" class="hidden">
+  <div id="crosshair"><div class="ch"></div><div id="hitmark"></div></div>
+  <div id="hurtDir"><div></div></div>
+  <div id="topbar"><div id="roomInfo"></div><div id="objective"></div></div>
+  <div id="bossbar" class="hidden"><div id="bossName"></div><div class="bar"><div id="bossFill"></div></div></div>
+  <div id="team"></div>
+  <div id="perkIcons"></div>
+  <div id="hpbox">
+    <div id="skillCd"><span id="skillLabel">💣</span><span id="skillTime">Q</span></div>
+    <div class="hpwrap"><div class="bar"><div id="hpFill"></div></div><span id="hpText"></span></div>
+  </div>
+  <div id="gunbox"><div id="ammo"></div><div id="gunSlots"></div></div>
+  <div id="prompt"></div>
+  <div id="downed" class="hidden"><span id="downedText">DOWNED</span></div>
+  <div id="vignette"></div>
+  <div id="dmgnums"></div>
+  <div id="toast"></div>
+  <div id="fps"></div>
+</div>
+
+<div id="touchUI" class="hidden">
+  <div id="joyZone"></div>
+  <div id="lookZone"></div>
+  <div id="joyBase"><div id="joyKnob"></div></div>
+  <button class="tbtn" id="btnPause">☰</button>
+  <button class="tbtn fsBtn" id="btnFs">⛶</button>
+  <button class="tbtn" id="btnFire">FIRE</button>
+  <button class="tbtn" id="btnAim">AIM</button>
+  <button class="tbtn" id="btnJump">JUMP</button>
+  <button class="tbtn" id="btnDash">DASH</button>
+  <button class="tbtn" id="btnSkill">SKILL</button>
+  <button class="tbtn" id="btnReload">R</button>
+  <button class="tbtn" id="btnSwap">⇄</button>
+  <button class="tbtn" id="btnUse" style="display:none">USE</button>
+</div>
+
+<div id="menu" class="screen">
+  <div class="panel">
+    <h1>EMBER <span>RUN</span></h1>
+    <p class="sub">A co-op roguelite shooter. Clear rooms, grab guns, stack perks, topple the golem.</p>
+    <label class="row">Name <input id="nameInput" maxlength="14" autocomplete="off"></label>
+    <div class="row skills">Skill
+      <label><input type="radio" name="skill" value="grenade" checked> 💣 Fire grenade</label>
+      <label><input type="radio" name="skill" value="shield"> 🛡️ Barrier</label>
+    </div>
+    <label class="row">Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
+    <div class="btns">
+      <button id="soloBtn" class="big">▶ Solo</button>
+      <button id="hostBtn" class="big alt">👥 Co-op: Host</button>
+    </div>
+    <div class="joinrow"><input id="codeInput" placeholder="ROOM CODE" maxlength="6" autocomplete="off" autocapitalize="characters"><button id="joinBtn" class="alt">Join</button></div>
+    <div id="menuErr"></div>
+    <div class="btns small"><button class="fsBtn">⛶ Fullscreen</button><button id="muteBtn">🔊 Sound on</button></div>
+    <details class="help"><summary>How to play</summary>
+      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q skill · R reload · 1/2 or wheel swap guns · E pick up / open · M mute · Esc pause.</p>
+      <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Play in landscape.</p>
+      <p>Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Defeat the golem at the end of each floor and step into the portal. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
+    </details>
+  </div>
+</div>
+
+<div id="lobby" class="screen hidden">
+  <div class="panel">
+    <h2>Co-op lobby</h2>
+    <p>Room code</p>
+    <div id="lobbyCode">-----</div>
+    <button id="copyCodeBtn">📋 Copy invite link</button>
+    <div id="lobbyWait2" class="note"></div>
+    <div id="lobbyCount"></div>
+    <ul id="lobbyPlayers"></ul>
+    <button id="startBtn" class="big">▶ Start run</button>
+    <div id="lobbyWait" class="note">Waiting for the host to start…</div>
+    <button id="leaveLobbyBtn">Leave</button>
+  </div>
+</div>
+
+<div id="perks" class="screen hidden">
+  <div class="panel wide">
+    <h2>Room cleared — choose a perk</h2>
+    <div id="perkCards"></div>
+  </div>
+</div>
+
+<div id="pause" class="screen hidden">
+  <div class="panel">
+    <h2 id="pauseTitle">Paused</h2>
+    <button id="resumeBtn" class="big">Click to play</button>
+    <button id="quitBtn">Quit to menu</button>
+    <p class="note">Desktop: the mouse is captured while playing. Press Esc to free it.</p>
+  </div>
+</div>
+
+<div id="end" class="screen hidden">
+  <div class="panel">
+    <h1 id="endTitle">DEFEATED</h1>
+    <div id="endStats"></div>
+    <button id="againBtn" class="big">↻ Play again</button>
+    <div id="endWait" class="note">Waiting for the host to restart…</div>
+    <button id="menuBtn">Main menu</button>
+  </div>
+</div>
+
+<div id="rotate"><div>📱↻<br>Rotate your phone to landscape</div></div>
+<noscript>Ember Run needs JavaScript.</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
