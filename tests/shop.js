@@ -26,7 +26,7 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   // ---------- level generation: every floor has exactly one shop room right before the boss, plus a chest room
   console.log('# level generation');
   const lv = await ev(async () => {
-    const { genLevel } = await import('/js/level.js'); const out = { bad: 0, n: 0, min: 99, max: 0 };
+    const { genLevel } = await import(new URL('js/level.js', document.baseURI).href); const out = { bad: 0, n: 0, min: 99, max: 0 };
     for (let seed = 1; seed <= 60; seed++) for (let f = 1; f <= 3; f++) {
       const L = genLevel(seed * 977, f), t = L.rooms.map(r => r.type); out.n++;
       const shops = t.filter(x => x === 'shop').length, boss = t.filter(x => x === 'boss').length, chest = t.filter(x => x === 'chest').length;
@@ -63,7 +63,7 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   await page.keyboard.press('KeyE'); await sleep(500);
   ok((await ev(() => __me.guns.length)) === g0 + 1 || (await ev(() => __me.guns.map(g => g.type).includes('revolver'))), 'E takes the weapon from within pickup range');
   // lodestone widens pickup range -> card range follows (max(3.5, range+0.8))
-  ok(await ev(async () => { const S = await import('/js/shop.js'); return S.CARD_RANGE === 3.5; }), 'CARD_RANGE constant is 3.5');
+  ok(await ev(async () => { const S = await import(new URL('js/shop.js', document.baseURI).href); return S.CARD_RANGE === 3.5; }), 'CARD_RANGE constant is 3.5');
 
   // ---------- gold from kills
   console.log('# gold from kills');
@@ -72,7 +72,7 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   const kinfo = await ev(() => { const { G } = __dbg; return [...G.host.enemies.values()].map(e => e.type); });
   console.log('  enemies in room:', kinfo.join(','));
   const g1 = await ev(() => __me.gold);
-  const expected = await ev(async () => { const S = await import('/js/shop.js'); const { G } = __dbg; const types = [...G.host.enemies.values()].map(e => e.type); return types.reduce((s, t) => ({ lo: s.lo + Math.round(S.GOLD_BASE[t] * S.floorMul(G.floor) * 0.85), hi: s.hi + Math.round(S.GOLD_BASE[t] * S.floorMul(G.floor) * 1.15) + 1 }), { lo: 0, hi: 0 }); });
+  const expected = await ev(async () => { const S = await import(new URL('js/shop.js', document.baseURI).href); const { G } = __dbg; const types = [...G.host.enemies.values()].map(e => e.type); return types.reduce((s, t) => ({ lo: s.lo + Math.round(S.GOLD_BASE[t] * S.floorMul(G.floor) * 0.85), hi: s.hi + Math.round(S.GOLD_BASE[t] * S.floorMul(G.floor) * 1.15) + 1 }), { lo: 0, hi: 0 }); });
   await ev(() => { const { G } = __dbg; for (const e of [...G.host.enemies.values()]) { e.spawnT = 0; G.host.damage(e, 99999, 1, 'none', true); } });
   await sleep(600);
   const g2 = await ev(() => __me.gold);
@@ -147,12 +147,12 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   ok((await ev(() => __me.gold)) === gBefore - price1 && await ev((s) => __me.guns[0].type === s.type && __me.guns[0].rarity === s.rarity, spec1), 'replacing slot 1 deducts gold and equips the new weapon');
   ok((await ev(() => [...__dbg.G.host.pickups.values()].filter(p => p.kind === 'gun').length)) === floorGuns0 + 1 && (await ev((n) => [...__dbg.G.host.pickups.values()].some(p => p.kind === 'gun' && p.gun.type), old0)), `the replaced weapon (${old0}) is dropped on the floor`);
   // reroll stock
-  const rc0 = await ev(async () => { const S = await import('/js/shop.js'); return S.stockRerollCost(__me.shop.n, __dbg.G.floor); });
+  const rc0 = await ev(async () => { const S = await import(new URL('js/shop.js', document.baseURI).href); return S.stockRerollCost(__me.shop.n, __dbg.G.floor); });
   const sk0 = await ev(() => JSON.stringify(__me.shop.stock.map(s => s.spec)));
   const gr0 = await ev(() => __me.gold); await click('[data-rrstock]');
   const sk1 = await ev(() => JSON.stringify(__me.shop.stock.map(s => s.spec)));
   ok(sk0 !== sk1 && (await ev(() => __me.gold)) === gr0 - rc0 && (await ev(() => __me.shop.stock.every(s => !s.sold))), `reroll stock costs ${rc0}, gives fresh unsold stock`);
-  const rc1 = await ev(async () => { const S = await import('/js/shop.js'); return S.stockRerollCost(__me.shop.n, __dbg.G.floor); });
+  const rc1 = await ev(async () => { const S = await import(new URL('js/shop.js', document.baseURI).href); return S.stockRerollCost(__me.shop.n, __dbg.G.floor); });
   ok(rc1 > rc0, `next reroll costs more (${rc0} -> ${rc1})`);
   await ev(() => { __me.gold = 3; }); await sleep(250); const skP = await ev(() => JSON.stringify(__me.shop.stock.map(s => s.spec)));
   await click('[data-rrstock]'); ok((await ev(() => JSON.stringify(__me.shop.stock.map(s => s.spec)))) === skP && (await ev(() => __me.gold)) === 3 && /Not enough gold/.test(await txt('#mMsg')), 'reroll with too little gold is refused');
@@ -185,7 +185,7 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   await ev(() => { document.querySelector('[data-sel="1"]').click(); }); await sleep(150);
   // reroll with gold
   const before = await ev(() => ({ aff: __me.guns[1].affixes.slice(), name: __me.guns[1].name, gold: __me.gold, rr: __me.guns[1].rr | 0 }));
-  const cost1 = await ev(async (rr) => { const W = await import('/js/weapons.js'); return W.rerollCost(2, rr, false); }, before.rr);
+  const cost1 = await ev(async (rr) => { const W = await import(new URL('js/weapons.js', document.baseURI).href); return W.rerollCost(2, rr, false); }, before.rr);
   await click('[data-reroll]'); await sleep(200);
   const after = await ev(() => ({ aff: __me.guns[1].affixes.slice(), name: __me.guns[1].name, gold: __me.gold, rr: __me.guns[1].rr | 0, pending: !!__dbg.shopState.pending }));
   console.log('  reroll:', before.aff.join('+'), '->', after.aff.join('+'), 'gold', before.gold, '->', after.gold);
@@ -195,12 +195,12 @@ const ok = (c, msg) => { if (c) { passes++; console.log('  ok  ', msg); } else {
   await click('[data-revert]');
   const rev = await ev(() => ({ aff: __me.guns[1].affixes.slice(), gold: __me.gold, rr: __me.guns[1].rr | 0, pending: !!__dbg.shopState.pending }));
   ok(rev.aff.join() === before.aff.join() && rev.gold === after.gold && !rev.pending && rev.rr === after.rr, 'revert restores the old affixes (no refund, cost counter keeps its escalation) and can only be used once');
-  const cost2 = await ev(async (rr) => { const W = await import('/js/weapons.js'); return W.rerollCost(2, rr, false); }, rev.rr);
+  const cost2 = await ev(async (rr) => { const W = await import(new URL('js/weapons.js', document.baseURI).href); return W.rerollCost(2, rr, false); }, rev.rr);
   ok(cost2 > cost1, `reroll cost escalates per weapon (${cost1} -> ${cost2})`);
   // lock an affix
   const lockId = before.aff[0];
   await ev((id) => { document.querySelector(`[data-lock="${id}"]`).click(); }, lockId); await sleep(150);
-  const costL = await ev(async (rr) => { const W = await import('/js/weapons.js'); return W.rerollCost(2, rr, true); }, rev.rr);
+  const costL = await ev(async (rr) => { const W = await import(new URL('js/weapons.js', document.baseURI).href); return W.rerollCost(2, rr, true); }, rev.rr);
   const gL = await ev(() => __me.gold);
   await click('[data-reroll]');
   const lk = await ev(() => ({ aff: __me.guns[1].affixes.slice(), gold: __me.gold }));
