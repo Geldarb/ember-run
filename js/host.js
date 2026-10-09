@@ -1,5 +1,5 @@
 // Host-authoritative simulation: rooms, waves, enemies, enemy projectiles, pickups.
-import { ENEMIES, ENEMY_TYPES, FLOORS, rollGun, rand, clamp } from './data.js';
+import { ENEMIES, ENEMY_TYPES, FLOORS, rollGun, rand, clamp, charOf } from './data.js';
 import { collide, roomAt, pointInSolid, setDoors } from './level.js';
 
 const R2 = v => Math.round(v * 100) / 100;
@@ -10,10 +10,11 @@ export class HostSim {
     this.enemies = new Map(); this.eproj = new Map(); this.pickups = new Map();
     this.nextId = 1; this.spawnQ = []; this.time = 0; this.active = -1; this.wave = 0; this.waveTotal = 0;
     this.roomState = []; this.portal = null; this.over = false; this.waveDelay = 0;
-    this.kills = this.kills || {}; this.bossId = 0;
+    this.kills = this.kills || {}; this.bossId = 0; this.zones = new Map();
   }
   bcast(m) { this.G.net.broadcast(m); }
   nPlayers() { return Math.max(1, this.G.players.size); }
+  charOf(id) { const p = this.G.players.get(id); return p ? charOf(p.char) : 'cinder'; }
   alivePlayers() { return [...this.G.players.values()].filter(p => !p.down && p.ready); }
 
   startFloor(floor, seed, fresh) {
@@ -23,7 +24,9 @@ export class HostSim {
     const L = this.G.level;
     this.roomState = L.rooms.map(r => (r.type === 'start' ? 'clear' : 'idle'));
     const s = L.rooms[0];
-    if (floor === 1 && fresh) this.addPickup({ kind: 'gun', x: s.cx, z: s.cz - 3, gun: { type: 'rifle', rarity: 0, el: 'none' } });
+    // starter pickup: a rifle, unless everyone already starts with one (Frost)
+    const allFrost = [...this.G.players.values()].every(p => charOf(p.char) === 'frost');
+    if (floor === 1 && fresh) this.addPickup({ kind: 'gun', x: s.cx, z: s.cz - 3, gun: { type: allFrost ? 'shotgun' : 'rifle', rarity: 0, el: 'none' } });
     else this.addPickup({ kind: 'gun', x: s.cx, z: s.cz - 3, gun: rollGun(floor, 0.3) });
     this.addPickup({ kind: 'hp', x: s.cx + 3, z: s.cz - 3 });
     for (const rm of L.rooms) if (rm.type === 'chest') { this.addPickup({ kind: 'chest', x: rm.cx, z: rm.cz }); }
@@ -55,7 +58,9 @@ export class HostSim {
         this.addPickup({ kind: 'hp', x: pk.x, z: pk.z - 1.8 });
         this.addPickup({ kind: 'ammo', x: pk.x, z: pk.z + 2.6 });
       }
-    } else if (m.t === 'drop') {
+    } else if (m.t === 'zone') this.addZone(m, from);
+    else if (m.t === 'slam') this.slam(m, from);
+    else if (m.t === 'drop') {
       this.addPickup({ kind: 'gun', x: m.x, z: m.z, gun: m.gun });
     }
   }
@@ -65,6 +70,7 @@ export class HostSim {
     if (e.hp <= 0 || e.spawnT > 0) return;
     dmg = Math.round(dmg);
     e.hp -= dmg; e.lastBy = by; e.hitT = 0.1;
+    if (direct && this.charOf(by) === 'frost') e.slowT = 1.6; // Frost passive: Frostbite
     if (!direct) this.bcast({ t: 'dn', x: R2(e.x), y: R2(e.y + ENEMIES[e.type].h), z: R2(e.z), a: dmg, c: (el === 'fire' || el === 'burn') ? 'f' : el === 'shockchain' ? 's' : 'b' });
     if (el === 'fire') { e.burnT = 3; e.burnDps = Math.max(5, Math.max(e.burnDps && e.burnT > 0 ? e.burnDps : 0, dmg * 0.35)); e.burnBy = by; e.burnTick = 0.5; }
     if (el === 'shock' && direct) {
@@ -100,12 +106,70 @@ export class HostSim {
     const by = e.lastBy || 0;
     this.kills[by] = (this.kills[by] || 0) + 1;
     this.bcast({ t: 'kill', id: e.id, by, x: R2(e.x), y: R2(e.y), z: R2(e.z), type: e.type });
+    if (by && this.charOf(by) === 'cinder' && Math.random() < 0.15) this.ignite(e.x, e.z, 5.5, by); // Cinder passive: Wildfire
     if (e.type === 'bomber') this.explodeAt(e.x, e.z, 3.5, 0, by); // killed bombers blow up on enemies only
     const r = Math.random();
     if (e.type === 'golem') { for (const o of [...this.enemies.values()]) { o.lastBy = by; this.kill(o); } return; }
     if (r < 0.13) this.addPickup({ kind: 'ammo', x: e.x, z: e.z });
     else if (r < 0.19) this.addPickup({ kind: 'hp', x: e.x, z: e.z });
     else if (r < 0.215) this.addPickup({ kind: 'gun', x: e.x, z: e.z, gun: rollGun(this.floor) });
+  }
+
+  // ---------- character skills ----------
+  ignite(x, z, r, by) {
+    const dps = 8 + 5 * (this.floor - 1);
+    let n = 0;
+    for (const o of this.enemies.values()) if (o.hp > 0 && o.spawnT <= 0 && Math.hypot(o.x - x, o.z - z) < r + ENEMIES[o.type].r) { o.burnT = 3; o.burnDps = Math.max(o.burnDps || 0, dps); o.burnBy = by; o.burnTick = Math.min(o.burnTick || 0.5, 0.5); n++; }
+    this.bcast({ t: 'fx', k: 'ignite', x: R2(x), z: R2(z), r, n });
+  }
+  // placed areas: Magma pool (fire), Ice Barrier (wall), Warm Hearth (hearth)
+  addZone(m, by) {
+    const kind = m.kind;
+    if (!['fire', 'wall', 'hearth'].includes(kind) || !isFinite(m.x) || !isFinite(m.z)) return;
+    const z = { id: this.nextId++, kind, x: R2(m.x), z: R2(m.z), yaw: R2(+m.yaw || 0), by, tick: 0 };
+    if (kind === 'fire') { z.r = clamp(+m.r || 3.2, 1, 5); z.dur = clamp(+m.dur || 4, 1, 7); z.dmg = clamp(+m.dmg || 10, 1, 60); }
+    if (kind === 'wall') { z.len = clamp(+m.len || 6, 2, 10); z.dur = clamp(+m.dur || 6, 1, 10); }
+    if (kind === 'hearth') { z.r = clamp(+m.r || 4.5, 1, 6); z.dur = clamp(+m.dur || 6, 1, 10); z.heal = clamp(+m.heal || 8, 1, 20); }
+    z.t = z.dur;
+    this.zones.set(z.id, z);
+    const { tick, ...pub } = z;
+    this.bcast({ t: 'zone+', z: pub });
+  }
+  // wall-local coords: a = along the wall, c = across it
+  wallLocal(w, x, z) { const dx = x - w.x, dz = z - w.z, cy = Math.cos(w.yaw), sy = Math.sin(w.yaw); return { a: dx * cy - dz * sy, c: -dx * sy - dz * cy }; }
+  slam(m, by) {
+    if (!isFinite(m.x) || !isFinite(m.z)) return;
+    const r = clamp(+m.r || 7, 2, 10), stun = clamp(+m.stun || 1.6, 0.2, 3), dmg = clamp(+m.dmg || 35, 1, 200);
+    this.bcast({ t: 'fx', k: 'slam', x: R2(m.x), z: R2(m.z), r, src: by });
+    for (const e of [...this.enemies.values()]) {
+      if (e.spawnT > 0 || e.hp <= 0) continue;
+      const dx = e.x - m.x, dz = e.z - m.z, d = Math.hypot(dx, dz);
+      if (d > r + ENEMIES[e.type].r || e.y > 3) continue;
+      const boss = e.type === 'golem';
+      e.stunT = boss ? 0.5 : stun; e.st = e.type === 'archer' || e.type === 'bomber' ? 0 : e.st; e.flag = 0;
+      if (!boss) { const k = (e.type === 'brute' ? 9 : 15) * (1 - 0.4 * d / r), l = d || 1; e.kbx = dx / l * k; e.kbz = dz / l * k; }
+      this.damage(e, dmg * (1 - 0.3 * d / r), by, 'none', false);
+    }
+  }
+  updZones(dt) {
+    for (const z of [...this.zones.values()]) {
+      z.t -= dt;
+      if (z.t <= 0) { this.zones.delete(z.id); continue; }
+      if (z.kind === 'fire') {
+        z.tick -= dt;
+        if (z.tick <= 0) {
+          z.tick = 0.5;
+          for (const e of [...this.enemies.values()]) if (e.spawnT <= 0 && e.hp > 0 && e.y < 2 && Math.hypot(e.x - z.x, e.z - z.z) < z.r + ENEMIES[e.type].r * 0.6) { e.burnT = Math.max(e.burnT || 0, 0.6); e.burnDps = e.burnDps || 0; this.damage(e, z.dmg, z.by, 'burn', false); }
+        }
+      }
+    }
+  }
+  // speed multiplier from Frostbite + Ice Barrier contact
+  slowMul(e) {
+    let m = e.slowT > 0 ? 0.75 : 1;
+    const r = ENEMIES[e.type].r;
+    for (const w of this.zones.values()) if (w.kind === 'wall') { const L = this.wallLocal(w, e.x, e.z); if (Math.abs(L.a) < w.len / 2 + r && Math.abs(L.c) < 0.6 + r) { m = Math.min(m, e.type === 'golem' ? 0.7 : 0.4); e.chillT = 0.3; } }
+    return m;
   }
 
   // ---------- spawning ----------
@@ -193,6 +257,7 @@ export class HostSim {
         else this.clearRoom();
       }
     }
+    this.updZones(dt);
     // enemies
     const arr = [...this.enemies.values()];
     for (const e of arr) this.updEnemy(e, dt, players, L);
@@ -207,6 +272,9 @@ export class HostSim {
     for (const pr of [...this.eproj.values()]) {
       pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.z += pr.vz * dt; pr.life -= dt;
       if (pr.life <= 0 || pointInSolid(L, pr.x, pr.y, pr.z)) { this.eproj.delete(pr.id); continue; }
+      let blocked = false;
+      if (this.zones.size) for (const w of this.zones.values()) if (w.kind === 'wall' && pr.y < 3) { const W = this.wallLocal(w, pr.x, pr.z); if (Math.abs(W.a) < w.len / 2 + 0.2 && Math.abs(W.c) < 0.65) { blocked = true; break; } }
+      if (blocked) { this.eproj.delete(pr.id); this.bcast({ t: 'fx', k: 'block', x: R2(pr.x), y: R2(pr.y), z: R2(pr.z) }); continue; }
       for (const p of players) {
         const cy = clamp(pr.y, p.y + 0.2, p.y + 1.6);
         if (Math.hypot(p.x - pr.x, p.z - pr.z, cy - pr.y) < 0.65) { this.hurtPlayer(p, pr.dmg, pr.x, pr.z); this.eproj.delete(pr.id); break; }
@@ -233,6 +301,15 @@ export class HostSim {
       e.burnT -= dt; e.burnTick -= dt;
       if (e.burnTick <= 0) { e.burnTick = 0.5; this.damage(e, e.burnDps * 0.5, e.burnBy, 'burn', false); if (e.hp <= 0) return; }
     }
+    if (e.slowT > 0) e.slowT -= dt;
+    if (e.chillT > 0) e.chillT -= dt;
+    if (e.kbx || e.kbz) {
+      e.x += e.kbx * dt; e.z += e.kbz * dt; collide(L, e, def.r, 0, 0);
+      const k = Math.exp(-6 * dt); e.kbx *= k; e.kbz *= k; if (Math.hypot(e.kbx, e.kbz) < 0.2) e.kbx = e.kbz = 0;
+      const rm = this.active >= 0 ? L.rooms[this.active] : null;
+      if (rm) { e.x = clamp(e.x, rm.cx - rm.hw + def.r, rm.cx + rm.hw - def.r); e.z = clamp(e.z, rm.cz - rm.hd + def.r, rm.cz + rm.hd - def.r); }
+    }
+    if (e.stunT > 0) { e.stunT -= dt; return; }
     // target nearest
     let tgt = null, td = 1e9;
     for (const p of players) { const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < td) { td = d; tgt = p; } }
@@ -293,6 +370,7 @@ export class HostSim {
     if (mvx || mvz) {
       if (e.stuck > 0) { e.stuck -= dt; const ox = mvx, oz = mvz; mvx = ox * 0.3 - oz * e.side; mvz = oz * 0.3 + ox * e.side; const l = Math.hypot(mvx, mvz); mvx /= l; mvz /= l; }
       const ox = e.x, oz = e.z;
+      if (this.zones.size || e.slowT > 0) sp *= this.slowMul(e);
       e.x += mvx * sp * dt; e.z += mvz * sp * dt;
       e.hitWall = false; collide(L, e, def.r, 0, 0);
       e.wallHit = e.hitWall;
@@ -360,7 +438,7 @@ export class HostSim {
   }
   snapshot() {
     const en = [];
-    for (const e of this.enemies.values()) en.push([e.id, ENEMY_TYPES.indexOf(e.type), R2(e.x), R2(e.y), R2(e.z), R2(e.yaw), Math.max(0, e.hp), e.maxHp, e.spawnT > 0 ? 9 : (e.hitT > 0 ? 10 : 0) + e.flag + (e.burnT > 0 ? 100 : 0)]);
+    for (const e of this.enemies.values()) en.push([e.id, ENEMY_TYPES.indexOf(e.type), R2(e.x), R2(e.y), R2(e.z), R2(e.yaw), Math.max(0, e.hp), e.maxHp, e.spawnT > 0 ? 9 : (e.hitT > 0 ? 10 : 0) + e.flag + (e.burnT > 0 ? 100 : 0) + (e.slowT > 0 || e.chillT > 0 ? 1000 : 0) + (e.stunT > 0 ? 2000 : 0)]);
     const ep = [];
     for (const p of this.eproj.values()) ep.push([p.id, R2(p.x), R2(p.y), R2(p.z), p.k]);
     return { t: 's', en, ep };
