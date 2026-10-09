@@ -184,21 +184,33 @@ export function setDoors(level, roomIdx, active) {
   for (const b of level.boxes) if (b.kind === 'door' && b.room === roomIdx) { b.active = active; if (b.mesh) b.mesh.visible = active; }
 }
 
-const THEMES = [
-  { floor: '#3a3150', floor2: '#463b60', wall: 0x7d68a8, pillar: 0x9c7ad0, crate: 0xc77a3a, cover: 0x8f6a4a, fog: 0x1a1426, crystal: 0xff7a2a, sky: 0x150f22 },
-  { floor: '#24414a', floor2: '#2c4f59', wall: 0x3f8494, pillar: 0x55b0a8, crate: 0xd0b04a, cover: 0x5a7a6a, fog: 0x0e1c22, crystal: 0x3affd8, sky: 0x0a1418 },
-  { floor: '#4a2a2a', floor2: '#5a3232', wall: 0x7a3a3a, pillar: 0xa04a3a, crate: 0x9a9a9a, cover: 0x6a4a4a, fog: 0x200c0c, crystal: 0xffd040, sky: 0x180808 },
+// Frozen Forge themes. Floor 1 = snowy ice halls, floor 2 = molten forge, (3 = lava core, spare).
+// Lighting values are applied by main.js per floor (no extra lights are added).
+export const THEMES = [
+  { name: 'ice', floor: '#cfe2f1', floor2: '#bcd5ea', line: 'rgba(255,255,255,0.35)', wall: 0x9fc3e2, pillar: 0xd8ecfb, crate: 0x8cc6ee, cover: 0xe8f3fb,
+    cap: 0xf6fbff, fog: 0xb4cde2, sky: 0xa9c6df, fogNear: 18, fogFar: 78, crystal: 0x8fe6ff, glow: 0xff7a1a,
+    hemi: [0xeaf4ff, 0x7f97b8, 1.55], sun: [0xfff4e6, 1.35], particles: 'snow', door: 0x6fd8ff },
+  { name: 'forge', floor: '#2b2523', floor2: '#352d29', line: 'rgba(255,120,40,0.18)', wall: 0x3e3533, pillar: 0x4d423c, crate: 0x58493f, cover: 0x302a29,
+    cap: 0xff7a1a, fog: 0x2c1208, sky: 0x1c0a05, fogNear: 18, fogFar: 82, crystal: 0xff6a1a, glow: 0xff6a1a,
+    hemi: [0xffe2d0, 0x4a2a22, 1.8], sun: [0xffb070, 1.4], particles: 'embers', door: 0xff5a1a },
+  { name: 'core', floor: '#3a1c14', floor2: '#47231a', line: 'rgba(255,160,40,0.2)', wall: 0x5a2a20, pillar: 0x6a3426, crate: 0x7a7a80, cover: 0x4a2a24,
+    cap: 0xffb020, fog: 0x3a1006, sky: 0x240804, fogNear: 16, fogFar: 75, crystal: 0xffb020, glow: 0xffa020,
+    hemi: [0xffb080, 0x401008, 1.7], sun: [0xff8040, 1.5], particles: 'embers', door: 0xffa020 },
 ];
 
 export function buildLevelMesh(level) {
   const theme = THEMES[(level.floor - 1) % THEMES.length];
+  const ice = theme.name === 'ice';
+  const rr = mulberry32(level.seed * 31 + level.floor * 977); // visual-only RNG (never touches gameplay)
   const group = new THREE.Group();
-  // floor texture
+  // floor texture: flagstones / packed snow tiles
   const cv = document.createElement('canvas'); cv.width = cv.height = 64;
   const c = cv.getContext('2d');
   c.fillStyle = theme.floor; c.fillRect(0, 0, 64, 64);
   c.fillStyle = theme.floor2; c.fillRect(0, 0, 32, 32); c.fillRect(32, 32, 32, 32);
-  c.strokeStyle = 'rgba(255,255,255,0.08)'; c.lineWidth = 2; c.strokeRect(0, 0, 64, 64);
+  if (ice) { c.fillStyle = 'rgba(255,255,255,0.35)'; for (let k = 0; k < 10; k++) c.fillRect(Math.floor(rr() * 60), Math.floor(rr() * 60), 3, 2); }
+  else { c.strokeStyle = 'rgba(255,110,30,0.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(4, 50); c.lineTo(20, 40); c.lineTo(28, 46); c.moveTo(40, 10); c.lineTo(52, 22); c.stroke(); }
+  c.strokeStyle = theme.line; c.lineWidth = 2; c.strokeRect(0, 0, 64, 64);
   const tex = new THREE.CanvasTexture(cv); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.magFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
   const floorMat = new THREE.MeshLambertMaterial({ map: tex });
   for (const f of level.floors) {
@@ -211,28 +223,93 @@ export function buildLevelMesh(level) {
   const unit = new THREE.BoxGeometry(1, 1, 1); unit.translate(0, 0.5, 0);
   const kinds = { wall: theme.wall, pillar: theme.pillar, crate: theme.crate, cover: theme.cover };
   const dummy = new THREE.Object3D();
+  const inst = (geo, mat, items, set) => {
+    if (!items.length) return;
+    const im = new THREE.InstancedMesh(geo, mat, items.length);
+    items.forEach((it, i) => { dummy.position.set(0, 0, 0); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); set(it, i); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); });
+    group.add(im); return im;
+  };
   for (const k of Object.keys(kinds)) {
     const list = level.boxes.filter(b => b.kind === k);
     if (!list.length) continue;
     const mat = new THREE.MeshLambertMaterial({ color: kinds[k], flatShading: true });
     const im = new THREE.InstancedMesh(unit, mat, list.length);
     list.forEach((b, i) => {
-      dummy.position.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2); dummy.scale.set(b.x1 - b.x0, b.top, b.z1 - b.z0); dummy.updateMatrix();
+      dummy.position.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2); dummy.rotation.set(0, 0, 0); dummy.scale.set(b.x1 - b.x0, b.top, b.z1 - b.z0); dummy.updateMatrix();
       im.setMatrixAt(i, dummy.matrix);
-      if (k !== 'wall') { const col = new THREE.Color(kinds[k]).offsetHSL(0, 0, (Math.random() - 0.5) * 0.08); im.setColorAt(i, col); }
+      if (k !== 'wall') { const col = new THREE.Color(kinds[k]).offsetHSL(0, 0, (rr() - 0.5) * 0.08); im.setColorAt(i, col); }
     });
     group.add(im);
   }
-  // wall trim glow strip
-  const doorMat = new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.5, depthWrite: false });
+  const low = level.boxes.filter(b => b.kind === 'crate' || b.kind === 'cover');
+  const pillars = level.boxes.filter(b => b.kind === 'pillar');
+  const walls = level.boxes.filter(b => b.kind === 'wall');
+  if (ice) {
+    // snow caps on crates / cover / pillar tops
+    const snow = new THREE.MeshLambertMaterial({ color: theme.cap, flatShading: true });
+    inst(unit, snow, [...low, ...pillars], b => { dummy.position.set((b.x0 + b.x1) / 2, b.top, (b.z0 + b.z1) / 2); dummy.scale.set(b.x1 - b.x0 + 0.12, 0.18, b.z1 - b.z0 + 0.12); });
+    // wall top snow
+    inst(unit, snow, walls, b => { dummy.position.set((b.x0 + b.x1) / 2, b.top, (b.z0 + b.z1) / 2); dummy.scale.set(b.x1 - b.x0 + 0.1, 0.25, b.z1 - b.z0 + 0.1); });
+    // icicles hanging along both faces of every wall
+    const icGeo = new THREE.ConeGeometry(0.16, 1, 4); icGeo.rotateX(Math.PI); icGeo.translate(0, -0.5, 0);
+    const icMat = new THREE.MeshLambertMaterial({ color: 0xcdeeff, flatShading: true, emissive: 0x1a3a50 });
+    const ics = [];
+    for (const b of walls) {
+      const along = (b.x1 - b.x0) > (b.z1 - b.z0), len = along ? b.x1 - b.x0 : b.z1 - b.z0;
+      for (let t = 0.6; t < len - 0.3; t += 1.1 + rr() * 1.4) for (const side of [-1, 1]) {
+        if (rr() < 0.3) continue;
+        const x = along ? b.x0 + t : (side < 0 ? b.x0 - 0.06 : b.x1 + 0.06), z = along ? (side < 0 ? b.z0 - 0.06 : b.z1 + 0.06) : b.z0 + t;
+        ics.push({ x, z, y: b.top, l: 0.5 + rr() * 1.1 });
+      }
+    }
+    inst(icGeo, icMat, ics, d => { dummy.position.set(d.x, d.y, d.z); dummy.scale.set(1, d.l, 1); dummy.rotation.y = d.l * 7; });
+  } else {
+    // molten forge: glowing seams on crates/cover tops, lava bands on pillars, lava strips along walls
+    const lava = new THREE.MeshBasicMaterial({ color: theme.glow });
+    const lavaHot = new THREE.MeshBasicMaterial({ color: 0xffb040 });
+    inst(unit, lava, low, b => { dummy.position.set((b.x0 + b.x1) / 2, b.top, (b.z0 + b.z1) / 2); dummy.scale.set((b.x1 - b.x0) * 0.7, 0.04, (b.z1 - b.z0) * 0.7); });
+    inst(unit, lava, pillars, b => { dummy.position.set((b.x0 + b.x1) / 2, 0.5, (b.z0 + b.z1) / 2); dummy.scale.set(b.x1 - b.x0 + 0.08, 0.18, b.z1 - b.z0 + 0.08); });
+    const strips = [];
+    for (const rm of level.rooms) {
+      const { cx, cz, hw, hd } = rm, o = 0.25, G2 = 2.6;
+      const seg = (x0, x1, z0, z1) => { if (x1 - x0 > 0.2 && z1 - z0 > 0.2) strips.push({ x0, x1, z0, z1 }); };
+      const runX = (z, door) => { if (door) { seg(cx - hw, cx - G2, z - 0.15, z + 0.15); seg(cx + G2, cx + hw, z - 0.15, z + 0.15); } else seg(cx - hw, cx + hw, z - 0.15, z + 0.15); };
+      const runZ = (x, door) => { if (door) { seg(x - 0.15, x + 0.15, cz - hd, cz - G2); seg(x - 0.15, x + 0.15, cz + G2, cz + hd); } else seg(x - 0.15, x + 0.15, cz - hd, cz + hd); };
+      runX(cz - hd + o, rm.doors.N); runX(cz + hd - o, rm.doors.S); runZ(cx - hw + o, rm.doors.W); runZ(cx + hw - o, rm.doors.E);
+    }
+    inst(unit, lava, strips, s => { dummy.position.set((s.x0 + s.x1) / 2, 0.01, (s.z0 + s.z1) / 2); dummy.scale.set(s.x1 - s.x0, 0.03, s.z1 - s.z0); });
+    // glowing seam high on walls
+    inst(unit, lava, walls, b => { dummy.position.set((b.x0 + b.x1) / 2, b.top * 0.62, (b.z0 + b.z1) / 2); dummy.scale.set(b.x1 - b.x0 + 0.04, 0.12, b.z1 - b.z0 + 0.04); });
+    // decorative lava pools (flat, no gameplay effect), kept away from obstacles and doors
+    const pools = [];
+    for (const rm of level.rooms) {
+      if (rm.type === 'start') continue;
+      const want = rm.type === 'boss' ? 4 : 1 + Math.floor(rr() * 2);
+      for (let k = 0, guard = 0; k < want && guard < 40; guard++) {
+        const rad = 0.9 + rr() * 1.1, x = rm.cx + (rr() * 2 - 1) * (rm.hw - rad - 1.5), z = rm.cz + (rr() * 2 - 1) * (rm.hd - rad - 1.5);
+        if (Math.hypot(x - rm.cx, z - rm.cz) < 5) continue;
+        if (level.boxes.some(b => b.kind !== 'wall' && x + rad + 0.5 > b.x0 && x - rad - 0.5 < b.x1 && z + rad + 0.5 > b.z0 && z - rad - 0.5 < b.z1)) continue;
+        if (pools.some(p => Math.hypot(p.x - x, p.z - z) < p.r + rad + 1)) continue;
+        if (rm.entryPt && Math.hypot(rm.entryPt[0] - x, rm.entryPt[1] - z) < 4) continue;
+        pools.push({ x, z, r: rad }); k++;
+      }
+    }
+    const rimGeo = new THREE.CircleGeometry(1, 6); rimGeo.rotateX(-Math.PI / 2);
+    inst(rimGeo, new THREE.MeshLambertMaterial({ color: 0x1a1412, flatShading: true }), pools, p => { dummy.position.set(p.x, 0.012, p.z); dummy.scale.set(p.r + 0.35, 1, p.r + 0.35); dummy.rotation.y = p.r * 3; });
+    inst(rimGeo, lava, pools, p => { dummy.position.set(p.x, 0.02, p.z); dummy.scale.set(p.r, 1, p.r); dummy.rotation.y = p.r * 3; });
+    inst(rimGeo, lavaHot, pools, p => { dummy.position.set(p.x, 0.025, p.z); dummy.scale.set(p.r * 0.5, 1, p.r * 0.5); dummy.rotation.y = p.r * 3 + 0.5; });
+  }
+  // sealed-door energy (ice wall on floor 1, heat haze on the forge floor)
+  const doorMat = new THREE.MeshBasicMaterial({ color: theme.door, transparent: true, opacity: 0.5, depthWrite: false });
   for (const b of level.boxes.filter(b => b.kind === 'door')) {
     const m = new THREE.Mesh(unit, doorMat); m.position.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2); m.scale.set(b.x1 - b.x0, b.top, b.z1 - b.z0);
     m.visible = b.active; b.mesh = m; group.add(m);
   }
+  // corner crystal clusters (ice shards / glowing forge ore)
   const crysGeo = new THREE.OctahedronGeometry(0.5, 0); crysGeo.scale(1, 2.2, 1);
   const crysMat = new THREE.MeshBasicMaterial({ color: theme.crystal });
-  const ci = new THREE.InstancedMesh(crysGeo, crysMat, level.decor.length);
-  level.decor.forEach((d, i) => { dummy.position.set(d.x, 1.2, d.z); dummy.scale.set(1, 1, 1); dummy.rotation.y = i; dummy.updateMatrix(); ci.setMatrixAt(i, dummy.matrix); });
-  group.add(ci);
+  const shards = [];
+  level.decor.forEach((d, i) => { shards.push({ x: d.x, z: d.z, s: 1, ry: i, tz: 0 }); shards.push({ x: d.x + 0.45, z: d.z + 0.2, s: 0.55, ry: i + 1, tz: 0.45 }); shards.push({ x: d.x - 0.35, z: d.z - 0.3, s: 0.65, ry: i + 2, tz: -0.4 }); });
+  inst(crysGeo, crysMat, shards, d => { dummy.position.set(d.x, 1.1 * d.s, d.z); dummy.scale.setScalar(d.s); dummy.rotation.set(0, d.ry, d.tz); });
   return { group, theme };
 }

@@ -1,24 +1,28 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #150f22; color: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0c1724; color: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; }
 #game canvas { display: block; position: fixed; inset: 0; width: 100vw; height: 100vh; }
 .hidden { display: none !important; }
-button { font: inherit; color: #fff; background: #3a2f55; border: 2px solid #6a5a9a; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
-button:hover { background: #4a3d6e; }
+button { font: inherit; color: #fff; background: #1d3550; border: 2px solid #4f88b8; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+button:hover { background: #284a6c; }
 button.big { font-size: 1.15em; font-weight: 700; padding: 12px 18px; background: linear-gradient(#ff8a3d, #e0571a); border-color: #ffb27a; }
 button.alt { background: linear-gradient(#3dc8ff, #1a7fd0); border-color: #8adcff; }
 input { font: inherit; }
 
 /* screens */
-.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 6, 20, 0.55); z-index: 20; overflow-y: auto; touch-action: pan-y; }
-.panel { background: rgba(25, 18, 42, 0.92); border: 2px solid #5a4a8a; border-radius: 16px; padding: 18px 22px; width: min(520px, 94vw); text-align: center; box-shadow: 0 10px 50px rgba(0,0,0,0.5); max-height: 96vh; overflow-y: auto; }
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6, 14, 24, 0.5); z-index: 20; overflow-y: auto; touch-action: pan-y; }
+.panel { background: rgba(12, 24, 38, 0.92); border: 2px solid #4f88b8; border-radius: 16px; padding: 18px 22px; width: min(520px, 94vw); text-align: center; box-shadow: 0 10px 50px rgba(0,0,0,0.5); max-height: 96vh; overflow-y: auto; }
 .panel.wide { width: min(820px, 96vw); }
 h1 { margin: 4px 0; font-size: 2.6em; letter-spacing: 4px; color: #ffb066; text-shadow: 0 0 18px #ff6a1a; }
-h1 span { color: #ff5a1a; }
+h1 span { color: #9fe4ff; text-shadow: 0 0 18px #3db8ff; }
+h1 .subtitle { display: block; font-size: 0.42em; letter-spacing: 6px; color: #cfeeff; text-shadow: 0 0 10px #3db8ff; margin-top: 2px; }
+.panel { border-image: none; box-shadow: 0 10px 50px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,140,60,0.25), 0 0 24px rgba(80,170,255,0.18); }
+#roomInfo { text-shadow: 0 0 8px rgba(255,120,40,0.6), 0 1px 3px #000; }
+#perks h2 { color: #bfeaff; }
 h1.win { color: #ffd040; } h1.lose { color: #ff5050; text-shadow: 0 0 18px #a00; }
 h2 { margin: 6px 0 12px; }
 .sub { opacity: 0.8; margin: 4px 0 12px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; text-align: left; }
-.row input[type=text], .row input:not([type]) { flex: 1; padding: 7px 10px; border-radius: 8px; border: 2px solid #5a4a8a; background: #1a1430; color: #fff; }
+.row input[type=text], .row input:not([type]) { flex: 1; padding: 7px 10px; border-radius: 8px; border: 2px solid #4f88b8; background: #0e1c2c; color: #fff; }
 .skills label { font-size: 0.95em; white-space: nowrap; }
 .btns { display: flex; gap: 10px; justify-content: center; margin: 12px 0 8px; flex-wrap: wrap; }
 .btns button { flex: 1; min-width: 140px; }
@@ -30,12 +34,12 @@ h2 { margin: 6px 0 12px; }
 .help summary { cursor: pointer; text-align: center; }
 #lobbyCode { font-size: 3em; font-weight: 800; letter-spacing: 10px; color: #3dc8ff; text-shadow: 0 0 14px #1a7fd0; margin: 4px 0 8px; user-select: text; -webkit-user-select: text; }
 #lobbyPlayers { list-style: none; padding: 0; margin: 10px auto; max-width: 300px; text-align: left; }
-#lobbyPlayers li { padding: 6px 10px; margin: 4px 0; background: #241b3a; border-radius: 8px; }
+#lobbyPlayers li { padding: 6px 10px; margin: 4px 0; background: #16283c; border-radius: 8px; }
 #lobby button { margin: 6px; }
 .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
 .note { opacity: 0.75; font-size: 0.9em; margin: 6px 0; min-height: 1em; word-break: break-all; }
 #perkCards { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-.card { position: relative; flex: 1 1 200px; max-width: 240px; padding: 16px 12px; background: linear-gradient(#2e2350, #1d1634); border: 2px solid #8a6aff; border-radius: 14px; transition: transform 0.1s; }
+.card { position: relative; flex: 1 1 200px; max-width: 240px; padding: 16px 12px; background: linear-gradient(#1b3450, #10202f); border: 2px solid #6fc4ff; border-radius: 14px; transition: transform 0.1s; }
 .card:hover { transform: translateY(-4px); border-color: #ffb066; }
 .card .icon { font-size: 2.4em; } .card .pname { font-weight: 800; font-size: 1.15em; margin: 6px 0; color: #ffd08a; } .card .pdesc { opacity: 0.9; }
 .card .key { position: absolute; top: 6px; left: 10px; opacity: 0.6; font-weight: 700; }
@@ -102,7 +106,7 @@ h2 { margin: 6px 0 12px; }
 #lookZone { position: fixed; right: 0; top: 0; width: 60vw; height: 100vh; }
 #joyBase { display: none; position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); pointer-events: none; }
 #joyKnob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; background: rgba(255,170,90,0.6); transform: translate(-50%,-50%); }
-.tbtn { position: fixed; border-radius: 50%; width: 60px; height: 60px; padding: 0; font-size: 12px; font-weight: 800; background: rgba(40, 30, 70, 0.55); border: 2px solid rgba(255,255,255,0.45); color: #fff; touch-action: none; }
+.tbtn { position: fixed; border-radius: 50%; width: 60px; height: 60px; padding: 0; font-size: 12px; font-weight: 800; background: rgba(16, 36, 60, 0.55); border: 2px solid rgba(255,255,255,0.45); color: #fff; touch-action: none; }
 .tbtn.on { background: rgba(255,140,60,0.7); }
 #btnFire { right: calc(26px + env(safe-area-inset-right)); bottom: 30px; width: 92px; height: 92px; font-size: 16px; background: rgba(255, 90, 30, 0.5); }
 #btnAim { right: calc(132px + env(safe-area-inset-right)); bottom: 22px; }
@@ -127,7 +131,7 @@ body.touch .panel { font-size: 0.9em; padding: 12px 16px; }
 body.touch h1 { font-size: 1.9em; }
 #rotate { display: none; }
 @media (orientation: portrait) {
-  body.touch #rotate { display: flex; position: fixed; inset: 0; z-index: 100; background: #150f22; align-items: center; justify-content: center; text-align: center; font-size: 1.4em; padding: 20px; }
+  body.touch #rotate { display: flex; position: fixed; inset: 0; z-index: 100; background: #0c1724; align-items: center; justify-content: center; text-align: center; font-size: 1.4em; padding: 20px; }
 }
 @media (max-height: 420px) {
   .panel { padding: 10px 14px; } h1 { font-size: 1.7em; } .help { display: none; } .row { margin: 4px 0; } .btns { margin: 6px 0; }
