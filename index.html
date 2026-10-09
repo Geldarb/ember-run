@@ -21,6 +21,9 @@
   <div id="bossbar" class="hidden"><div id="bossName"></div><div class="bar"><div id="bossFill"></div></div></div>
   <div id="team"></div>
   <div id="perkIcons"></div>
+  <div id="skillUps"></div>
+  <div id="gunCard" class="hidden"></div>
+  <div id="scope"></div>
   <div id="hpbox">
     <div id="skillCd"><span id="skillLabel">💣</span><span id="skillTime">Q</span></div>
     <div class="hpwrap"><div class="bar"><div id="hpFill"></div></div><span id="hpText"></span></div>
@@ -48,7 +51,9 @@
   <button class="tbtn" id="btnReload">R</button>
   <button class="tbtn" id="btnSwap">⇄</button>
   <button class="tbtn" id="btnUse" style="display:none">USE</button>
+  <button id="btnInspect" aria-label="Inspect weapons"></button>
 </div>
+<div id="inspect" class="hidden"></div>
 
 <div id="menu" class="screen">
   <div class="panel menuPanel">
@@ -63,13 +68,14 @@
       <button id="soloBtn" class="big">▶ Solo</button>
       <button id="hostBtn" class="big alt">👥 Co-op: Host</button>
     </div>
+    <button id="forgeBtn" class="forgeBtn">🔥 The Forge <span id="menuEmbers"></span></button>
     <div class="joinrow"><input id="codeInput" placeholder="ROOM CODE" maxlength="6" autocomplete="off" autocapitalize="characters"><button id="joinBtn" class="alt">Join</button></div>
     <div id="menuErr"></div>
     <div class="btns small"><button class="fsBtn">⛶ Fullscreen</button><button id="muteBtn">🔊 Sound on</button></div>
     <details class="help"><summary>How to play</summary>
-      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q character skill · R reload · 1/2 or wheel swap guns · E pick up / open · M mute · Esc pause.</p>
-      <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Play in landscape.</p>
-      <p>Pick a character: each has its own starting gun, a Q skill and an always-on passive. Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Defeat the Forge Golem at the end of each floor and step into the portal. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
+      <p><b>Desktop:</b> WASD move · Mouse look · Left click shoot · Right click aim · Space jump · Shift dash · Q character skill · R reload · 1/2 or wheel swap guns · E pick up / open · hold Tab (or I) inspect your guns · M mute · Esc pause.</p>
+      <p><b>Mobile:</b> left thumb = move stick, drag right side = look, hold FIRE (you can drag on it to aim too), plus AIM / JUMP / DASH / SKILL / R / ⇄ buttons. Walk up to a weapon to see its card, tap USE to take it, tap your weapon bar to inspect your guns. Play in landscape.</p>
+      <p>Pick a character: each has its own starting gun, a Q skill and an always-on passive. Each floor is a chain of rooms. Doors seal when you walk in; beat every wave to open them and pick 1 of 3 perks. Follow the light beam. Beat the boss at the end of each floor, choose an upgrade for your skill, then step into the portal. Three floors: Ice Halls, Molten Forge, the Ember Core. Weapons roll a rarity and random affixes; look at one to compare it with yours. Every run earns Embers to spend in the Forge. Co-op: stand next to a downed friend for 3 seconds to revive them.</p>
     </details>
   </div>
 </div>
@@ -93,8 +99,10 @@
 
 <div id="perks" class="screen hidden">
   <div class="panel wide">
-    <h2>Room cleared — choose a perk</h2>
+    <h2 id="perkTitle">Room cleared — choose a perk</h2>
     <div id="perkCards"></div>
+    <button id="rerollBtn" style="display:none">🎲 Reroll</button>
+    <div id="perkNote" class="note"></div>
   </div>
 </div>
 
@@ -103,6 +111,7 @@
     <h2 id="pauseTitle">Paused</h2>
     <button id="resumeBtn" class="big">Click to play</button>
     <button id="quitBtn">Quit to menu</button>
+    <div id="pauseBuild" class="build"></div>
     <p class="note">Desktop: the mouse is captured while playing. Press Esc to free it.</p>
   </div>
 </div>
@@ -111,9 +120,24 @@
   <div class="panel">
     <h1 id="endTitle">DEFEATED</h1>
     <div id="endStats"></div>
+    <div id="endEmbers"></div>
     <button id="againBtn" class="big">↻ Play again</button>
     <div id="endWait" class="note">Waiting for the host to restart…</div>
     <button id="menuBtn">Main menu</button>
+  </div>
+</div>
+
+<div id="forge" class="screen hidden">
+  <div class="panel wide forgePanel">
+    <h2>🔥 The Forge</h2>
+    <div class="fembers">You have <b id="forgeEmbers">0</b> Embers</div>
+    <div class="ftabs">
+      <button data-tab="up" class="sel">Upgrades</button><button data-tab="ch">Characters</button><button data-tab="arm">Armory &amp; Codex</button><button data-tab="rec">Records</button>
+    </div>
+    <div id="forgeBody"></div>
+    <div id="forgeMsg" class="note"></div>
+    <div class="btns small"><button id="forgeBack">◀ Back</button><button id="resetBtn" class="danger">Reset progress</button></div>
+    <p class="note small">Progress is saved in this browser only. The GitHub Pages, Render and local versions each keep a separate save. In co-op, everyone uses their own upgrades and earns their own Embers.</p>
   </div>
 </div>
 

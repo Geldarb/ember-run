@@ -44,6 +44,16 @@ export const sfx = {
     else if (type === 'rifle') { noise(0.08, 0.28, 'bandpass', 2500, 900, 0, 1.0); tone('sawtooth', 300, 90, 0.06, 0.08); }
     else if (type === 'shotgun') { noise(0.3, 0.55, 'lowpass', 4000, 200); tone('sine', 140, 40, 0.25, 0.4); }
     else if (type === 'launcher') { noise(0.35, 0.35, 'lowpass', 900, 120); tone('triangle', 220, 60, 0.3, 0.3); }
+    else if (type === 'smg') { noise(0.06, 0.2, 'bandpass', 3200, 1200, 0, 1.0); tone('square', 420, 160, 0.04, 0.05); }
+    else if (type === 'burst') { noise(0.08, 0.26, 'bandpass', 2600, 900, 0, 1.0); tone('sawtooth', 340, 100, 0.06, 0.07); }
+    else if (type === 'revolver') { noise(0.25, 0.5, 'lowpass', 5000, 300); tone('square', 260, 60, 0.18, 0.22); }
+    else if (type === 'sniper') { noise(0.4, 0.55, 'lowpass', 6000, 150); tone('sine', 900, 80, 0.3, 0.25); tone('square', 180, 40, 0.3, 0.2); }
+    else if (type === 'crossbow') { tone('triangle', 700, 200, 0.12, 0.18); noise(0.08, 0.12, 'highpass', 2000, 4000); }
+    else if (type === 'flamer') { noise(0.09, 0.07, 'bandpass', 900, 500, 0, 0.6); }
+    else if (type === 'grenade') { noise(0.2, 0.3, 'lowpass', 700, 120); tone('sine', 180, 90, 0.2, 0.25); }
+    else if (type === 'arc') { tone('sawtooth', 1400, 300, 0.09, 0.07); noise(0.06, 0.08, 'highpass', 5000, 8000); }
+    else if (type === 'dual') { noise(0.09, 0.28, 'bandpass', 3400, 900, 0, 1.2); tone('square', 600, 160, 0.06, 0.08); }
+    else if (type === 'minigun') { noise(0.05, 0.2, 'bandpass', 2200, 900, 0, 1.0); tone('sawtooth', 260, 120, 0.04, 0.05); }
     if (el === 'shock') tone('square', 1800, 900, 0.05, 0.05);
     if (el === 'fire') noise(0.12, 0.1, 'highpass', 3000, 6000);
   },

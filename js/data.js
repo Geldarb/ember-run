@@ -11,55 +11,12 @@ export const rand = (a, b) => a + Math.random() * (b - a);
 export const pick = (arr, r = Math.random) => arr[Math.floor(r() * arr.length)];
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-export const FLOORS = 2;
+export const FLOORS = 3; // 1 Ice Halls, 2 Molten Forge, 3 the Ember Core
 export const PLAYER_COLORS = [0xff8a3d, 0x3dc8ff, 0x9cff3d, 0xff4fd8];
 export const PLAYER_COLOR_CSS = ['#ff8a3d', '#3dc8ff', '#9cff3d', '#ff4fd8'];
 
-export const RARITIES = [
-  { name: 'Common', color: '#d8d8d8', hex: 0xd8d8d8, dmg: 1.0, rate: 1.0, mag: 1.0, w: 50 },
-  { name: 'Rare', color: '#4ea8ff', hex: 0x4ea8ff, dmg: 1.18, rate: 1.05, mag: 1.15, w: 30 },
-  { name: 'Epic', color: '#c070ff', hex: 0xc070ff, dmg: 1.35, rate: 1.12, mag: 1.3, w: 15 },
-  { name: 'Legendary', color: '#ffa31a', hex: 0xffa31a, dmg: 1.6, rate: 1.2, mag: 1.5, w: 5 },
-];
-export const ELEMENTS = { none: { name: '', color: '#fff', hex: 0xffffff }, fire: { name: 'Molten', color: '#ff6a2a', hex: 0xff6a2a }, shock: { name: 'Frost', color: '#7ff0ff', hex: 0x7ff0ff } };
-
-export const GUN_TYPES = {
-  pistol:   { name: 'Rivet Pistol', dmg: 18, rate: 5,   mag: 12, reload: 1.0, spread: 0.012, pellets: 1, reserve: Infinity, auto: false, kick: 0.6, proj: false },
-  shotgun:  { name: 'Scattergun', dmg: 11, rate: 1.5, mag: 6,  reload: 1.7, spread: 0.085, pellets: 8, reserve: 36,  auto: false, kick: 2.2, proj: false },
-  rifle:    { name: 'Forge Rifle', dmg: 12, rate: 10,  mag: 30, reload: 1.6, spread: 0.024, pellets: 1, reserve: 180, auto: true,  kick: 0.45, proj: false },
-  launcher: { name: 'Slag Launcher', dmg: 85, rate: 1.1, mag: 4,  reload: 2.2, spread: 0.004, pellets: 1, reserve: 16,  auto: false, kick: 2.6, proj: true, radius: 4.5, speed: 34 },
-};
-
-export function makeGun(type, rarity = 0, el = 'none', ammo, reserve) {
-  const b = GUN_TYPES[type], r = RARITIES[rarity];
-  const g = {
-    type, rarity, el,
-    name: `${r.name} ${el !== 'none' ? ELEMENTS[el].name + ' ' : ''}${b.name}`,
-    dmg: Math.round(b.dmg * r.dmg), rate: b.rate * r.rate,
-    mag: Math.round(b.mag * r.mag), reload: b.reload, spread: b.spread, pellets: b.pellets,
-    auto: b.auto, kick: b.kick, proj: b.proj, radius: b.radius, speed: b.speed,
-    maxReserve: b.reserve === Infinity ? Infinity : Math.round(b.reserve * r.mag),
-  };
-  g.ammo = ammo != null ? ammo : g.mag;
-  g.reserve = b.reserve === Infinity ? Infinity : (reserve != null ? reserve : g.maxReserve);
-  return g;
-}
-export function gunSpec(g) { return { type: g.type, rarity: g.rarity, el: g.el, ammo: g.ammo, reserve: g.reserve === Infinity ? -1 : g.reserve }; }
-export function gunFromSpec(s) { return makeGun(s.type, s.rarity, s.el, s.ammo, s.reserve < 0 ? undefined : s.reserve); }
-
-export function rollGun(floor = 1, luck = 0, r = Math.random) {
-  const types = ['shotgun', 'rifle', 'launcher', 'pistol'];
-  const wts = [3, 3, 2, 1];
-  let tot = wts.reduce((a, b) => a + b), x = r() * tot, type = 'rifle';
-  for (let i = 0; i < types.length; i++) { x -= wts[i]; if (x <= 0) { type = types[i]; break; } }
-  const rw = RARITIES.map((rr, i) => rr.w * (i > 0 ? 1 + 0.5 * (floor - 1) + luck : 1));
-  tot = rw.reduce((a, b) => a + b); x = r() * tot; let rarity = 0;
-  for (let i = 0; i < rw.length; i++) { x -= rw[i]; if (x <= 0) { rarity = i; break; } }
-  let el = 'none';
-  const ec = rarity === 3 ? 1 : 0.15 + rarity * 0.2;
-  if (r() < ec) el = r() < 0.5 ? 'fire' : 'shock';
-  return { type, rarity, el };
-}
+// Weapons (types, rarities, affixes, generator) live in weapons.js
+export { RARITIES, ELEMENTS, GUN_TYPES, GUN_IDS, LOCKED_GUNS, DEFAULT_POOL, AFFIXES, AFFIX, makeGun, gunSpec, gunFromSpec, cleanSpec, rollGun, rollAffixes, gunName, gunStatRows, gunTraits, gunDps } from './weapons.js';
 
 // Perks are applied locally on each player
 export const PERKS = [
@@ -72,7 +29,7 @@ export const PERKS = [
   { id: 'fifth', icon: '5️⃣', name: 'Lucky Fifth', desc: 'Every 5th shot is a critical hit' },
   { id: 'speed', icon: '👟', name: 'Ice Skates', desc: '+15% move speed' },
   { id: 'emberdash', icon: '🔥', name: 'Ember Dash', desc: 'Dashing releases a burst of fire' },
-  { id: 'spark', icon: '❄️', name: 'Frost Arc', desc: '15% chance for shots to arc frost to nearby foes' },
+  { id: 'spark', icon: '⚡', name: 'Static Arc', desc: '15% chance for shots to arc static to nearby foes' },
   { id: 'kindle', icon: '🕯️', name: 'Kindling', desc: '15% chance for shots to ignite' },
   { id: 'angel', icon: '😇', name: 'Hearthstone', desc: 'Get back up once at 50% HP when downed' },
   { id: 'cool', icon: '⏱️', name: 'Forgehand', desc: 'Skill cooldown -35%' },
@@ -121,6 +78,48 @@ export const CHARACTERS = {
 };
 export const CHAR_IDS = Object.keys(CHARACTERS);
 export function charOf(id) { return CHARACTERS[id] ? id : 'cinder'; }
+
+// End-of-floor skill upgrades: after each floor's boss every player picks 1 of 3 for their own Q skill.
+// max = how many times it can stack within a run.
+export const SKILL_UPS = {
+  cinder: [
+    { id: 'c_blast', icon: '💥', name: 'Bigger Blast', desc: '+30% grenade blast and magma pool radius', max: 3 },
+    { id: 'c_pool', icon: '🌋', name: 'Lingering Magma', desc: 'Magma pool lasts 60% longer and burns 25% hotter', max: 3 },
+    { id: 'c_cluster', icon: '🎆', name: 'Cluster Charge', desc: 'The blast scatters 3 mini-grenades (+2 per extra stack)', max: 2 },
+    { id: 'c_cd', icon: '⏱️', name: 'Quick Fuse', desc: '-20% Magma Grenade cooldown', max: 3 },
+    { id: 'c_trail', icon: '👣', name: 'Lava Trail', desc: 'For 4s after throwing you leave burning footprints', max: 1 },
+    { id: 'c_heal', icon: '❤️', name: 'Cauterize', desc: 'Kills by your grenade, pools or trail heal you 6 HP', max: 2 },
+    { id: 'c_twin', icon: '➕', name: 'Spare Grenade', desc: '+1 grenade charge', max: 1 },
+  ],
+  frost: [
+    { id: 'f_wide', icon: '🧱', name: 'Glacier Wall', desc: 'Ice Barrier 35% wider and lasts 35% longer', max: 3 },
+    { id: 'f_reflect', icon: '🪞', name: 'Mirror Ice', desc: 'Blocked enemy shots are reflected into nearby enemies (3× damage)', max: 1 },
+    { id: 'f_shatter', icon: '💠', name: 'Shatter', desc: 'When the barrier ends it explodes, damaging and freezing nearby enemies', max: 2 },
+    { id: 'f_cd', icon: '⏱️', name: 'Cold Snap', desc: '-20% Ice Barrier cooldown', max: 3 },
+    { id: 'f_charge', icon: '➕', name: 'Second Slab', desc: '+1 barrier charge', max: 1 },
+    { id: 'f_thorns', icon: '🌵', name: 'Rime Thorns', desc: 'Enemies touching the barrier take 25 damage per second', max: 2 },
+    { id: 'f_nova', icon: '❄️', name: 'Frost Nova', desc: 'Raising a barrier freezes enemies within 5m for 1.5s', max: 1 },
+  ],
+  anvil: [
+    { id: 'a_radius', icon: '🌐', name: 'Wide Quake', desc: '+25% Ground Slam radius', max: 3 },
+    { id: 'a_after', icon: '〰️', name: 'Aftershock', desc: 'A second slam follows 0.6s later at 70% damage', max: 1 },
+    { id: 'a_stun', icon: '💫', name: 'Concussion', desc: '+50% stun duration', max: 2 },
+    { id: 'a_armor', icon: '🛡️', name: 'Iron Skin', desc: 'Slamming heals 10 HP and halves damage taken for 3s', max: 2 },
+    { id: 'a_cd', icon: '⏱️', name: 'Forge Rhythm', desc: '-20% Ground Slam cooldown', max: 3 },
+    { id: 'a_dmg', icon: '🔨', name: 'Seismic Force', desc: '+60% slam damage', max: 3 },
+    { id: 'a_lava', icon: '🌋', name: 'Magma Fissure', desc: 'The slam leaves a burning pool for 3s', max: 1 },
+  ],
+  ember: [
+    { id: 'e_big', icon: '🔥', name: 'Bonfire', desc: 'Warm Hearth 30% bigger and lasts 30% longer', max: 3 },
+    { id: 'e_burn', icon: '♨️', name: 'Scorching Hearth', desc: 'The hearth burns enemies inside it', max: 2 },
+    { id: 'e_heal', icon: '💚', name: 'Rekindle', desc: '+50% hearth healing', max: 3 },
+    { id: 'e_cd', icon: '⏱️', name: 'Kindling', desc: '-20% Warm Hearth cooldown', max: 3 },
+    { id: 'e_dmg', icon: '⚔️', name: 'War Fire', desc: 'You and allies in the hearth deal +20% damage', max: 2 },
+    { id: 'e_revive', icon: '🕊️', name: 'Phoenix Hearth', desc: 'Downed allies inside the hearth get back up after 2s (co-op)', max: 1 },
+    { id: 'e_haste', icon: '💨', name: 'Warm Winds', desc: 'In the hearth: +20% move speed and 25% faster reloads', max: 1 },
+  ],
+};
+export const SKILL_UP = Object.fromEntries(Object.values(SKILL_UPS).flat().map(u => [u.id, u]));
 
 export const ENEMY_TYPES = ['grunt', 'archer', 'brute', 'bomber', 'golem'];
 export const ENEMIES = {
