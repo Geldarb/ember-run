@@ -1,0 +1,17 @@
+{
+  "name": "ember-run",
+  "version": "1.0.0",
+  "description": "Ember Run - browser co-op roguelite FPS",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  }
+}
